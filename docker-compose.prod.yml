@@ -1,0 +1,48 @@
+services:
+  api:
+    restart: always
+    environment:
+      NODE_ENV: production
+
+  llm:
+    restart: always
+    depends_on:
+      ollama:
+        condition: service_healthy   # waits until Ollama is ready before starting
+    # In prod, set TASK_ROUTING in .env to route tasks to "deepseek" or "ollama"
+
+  # ── Self-hosted Ollama (uncomment when ready) ──────────────────────────────
+  # When you uncomment this, also set in .env:
+  #   OLLAMA_BASE_URL=http://ollama:11434
+  #
+  # ollama:
+  #   image: ollama/ollama
+  #   restart: always
+  #   expose:
+  #     - "11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama      # model survives container restarts
+  #   entrypoint: ["/bin/sh", "/scripts/ollama-entrypoint.sh"]
+  #   bind_mount:
+  #     - ./scripts/ollama-entrypoint.sh:/scripts/ollama-entrypoint.sh:ro
+  #   environment:
+  #     OLLAMA_MODEL: ${OLLAMA_MODEL}    # pulled from .env
+  #   healthcheck:
+  #     test: ["CMD", "ollama", "list"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 30s               # gives time for the model pull on first run
+  #   networks:
+  #     - languageapp-net
+  #   # GPU support (requires nvidia-container-toolkit on the host):
+  #   # deploy:
+  #   #   resources:
+  #   #     reservations:
+  #   #       devices:
+  #   #         - driver: nvidia
+  #   #           count: 1
+  #   #           capabilities: [gpu]
+
+# volumes:
+#   ollama_data:
