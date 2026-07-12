@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import * as FormData from 'form-data';
+import { Readable } from 'stream';
 
 @Injectable()
 export class AppService {
@@ -17,11 +18,20 @@ export class AppService {
     return data;
   }
 
-  async transcribeAudio(fileBuffer: Buffer, mimetype: string, language?: string) {
+  async streamLlm(payload: unknown): Promise<Readable> {
+    const llmUrl = this.config.get<string>('LLM_SERVICE_URL');
+    const { data } = await axios.post(`${llmUrl}/llm/stream`, payload, {
+      responseType: 'stream',
+    });
+    return data;
+  }
+
+  async transcribeAudio(fileBuffer: Buffer, mimetype: string, language?: string, wordTimestamps = false) {
     const audioUrl = this.config.get<string>('AUDIO_SERVICE_URL');
     const form = new FormData();
     form.append('file', fileBuffer, { contentType: mimetype, filename: 'audio.wav' });
     if (language) form.append('language', language);
+    form.append('word_timestamps', String(wordTimestamps));
     const { data } = await axios.post(`${audioUrl}/stt/transcribe`, form, {
       headers: form.getHeaders(),
     });
