@@ -7,9 +7,9 @@ import kokoro
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from app.config import get_settings, LANGUAGE_ROUTING
+from app.config import get_settings, get_piper_voice_for_language, LANGUAGE_ROUTING
 from app.models.kokoro import get_kokoro_pipeline
-from app.models.piper import get_piper_voice
+from app.models.piper import get_piper_voice, VOICE_PATHS
 
 router = APIRouter()
 
@@ -45,14 +45,24 @@ def _get_voices() -> list[dict]:
     except Exception:
         pass
 
-    # Piper voices — known German voices
-    piper_voices = [
-        {"id": "de_DE-thorsten-medium", "engine": "piper", "lang_code": "de", "language": "German"},
-        {"id": "de_DE-kerstin-low",     "engine": "piper", "lang_code": "de", "language": "German"},
-        {"id": "de_DE-eva_k-x_low",     "engine": "piper", "lang_code": "de", "language": "German"},
-    ]
-    voices.extend(piper_voices)
-
+    # Piper voices — derived from VOICE_PATHS so it always stays in sync
+    PIPER_LANG_NAMES = {
+        "de": "German",    "nl": "Dutch",      "pl": "Polish",
+        "ru": "Russian",   "tr": "Turkish",    "ar": "Arabic",
+        "cs": "Czech",     "sv": "Swedish",    "nb": "Norwegian",
+        "da": "Danish",    "fi": "Finnish",    "el": "Greek",
+        "uk": "Ukrainian", "ko": "Korean",     "vi": "Vietnamese",
+        "hu": "Hungarian", "ro": "Romanian",   "sk": "Slovak",
+        "ca": "Catalan",   "sr": "Serbian",
+    }
+    for voice_id in sorted(VOICE_PATHS.keys()):
+        lang = voice_id[:2]
+        voices.append({
+            "id": voice_id,
+            "engine": "piper",
+            "lang_code": lang,
+            "language": PIPER_LANG_NAMES.get(lang, "Unknown"),
+        })
     return voices
 
 
@@ -77,7 +87,8 @@ async def synthesize(body: SynthesizeRequest):
                 raise HTTPException(status_code=400, detail=f"Language '{lang}' is not supported")
 
             if route["engine"] == "piper":
-                return await _synthesize_piper(body.text, body.voice or s.piper_voice_de)
+                voice = body.voice or get_piper_voice_for_language(lang)
+                return await _synthesize_piper(body.text, voice)
 
             # Kokoro path via language routing
             lang_code = route["lang_code"]
