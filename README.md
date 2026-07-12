@@ -6,8 +6,9 @@ Monorepo for the two backend services:
 |---|---|---|
 | `apps/api` | NestJS | `3000` (public) |
 | `apps/llm` | Python / FastAPI | `8000` (internal only) |
+| `apps/audio` | Python / FastAPI | `8001` (internal only) |
 
-The NestJS API is the only service exposed to the outside world. The Python LLM service is internal — only `api` talks to it.
+The NestJS API is the only service exposed to the outside world. The LLM and audio services are internal — only `api` talks to them.
 
 ---
 
@@ -51,6 +52,8 @@ languageapp-backend/
 - [Node.js](https://nodejs.org) 20+
 - [Python](https://www.python.org) 3.12+
 - [Ollama](https://ollama.com)
+- `espeak-ng` — required by Kokoro TTS (`brew install espeak-ng` on Mac)
+- `ffmpeg` — required by Faster-Whisper (`brew install ffmpeg` on Mac)
 
 **For Docker development / production:**
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/)
@@ -100,7 +103,19 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-#### 4. Start the NestJS API (separate terminal)
+#### 4. Start the Python audio service (separate terminal)
+
+On first start, Faster-Whisper and Kokoro will download their models automatically. This takes a few minutes once — after that they're cached locally.
+
+```bash
+cd apps/audio
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8001
+```
+
+#### 5. Start the NestJS API (separate terminal)
 
 ```bash
 cd apps/api
@@ -111,17 +126,30 @@ yarn start:dev                   # hot reload on file changes
 Services will be available at:
 - NestJS API → `http://localhost:3000`
 - Python LLM → `http://localhost:8000`
+- Python Audio → `http://localhost:8001`
 
-#### 5. Verify everything is running
+#### 6. Verify everything is running
 
 ```bash
-# NestJS health check
+# Health checks
 curl http://localhost:3000/api/v1/health
-
-# Python LLM health check
 curl http://localhost:8000/health
+curl http://localhost:8001/health
 
-# Test LLM generate endpoint
+# Test STT (transcribe an audio file)
+curl -X POST http://localhost:8001/stt/transcribe \
+  -F "file=@/path/to/audio.wav"
+
+# Test TTS (synthesize speech)
+curl -X POST http://localhost:8001/tts/synthesize \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello, how are you?", "voice": "af_heart"}' \
+  --output speech.wav
+
+# List available TTS voices
+curl http://localhost:8001/tts/voices
+
+# Test LLM generate
 curl -X POST http://localhost:8000/llm/generate \
   -H "Content-Type: application/json" \
   -d '{"task": "translation", "prompt": "Translate hello to French"}'

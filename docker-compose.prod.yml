@@ -11,6 +11,12 @@ services:
         condition: service_healthy   # waits until Ollama is ready before starting
     # In prod, set TASK_ROUTING in .env to route tasks to "deepseek" or "ollama"
 
+  audio:
+    restart: always
+    environment:
+      # Use "medium" or "large-v3" in prod for better STT accuracy
+      WHISPER_MODEL_SIZE: medium
+
   # ── Self-hosted Ollama (uncomment when ready) ──────────────────────────────
   # When you uncomment this, also set in .env:
   #   OLLAMA_BASE_URL=http://ollama:11434

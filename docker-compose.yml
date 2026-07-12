@@ -9,10 +9,12 @@ services:
       NODE_ENV: development
       PORT: 3000
       LLM_SERVICE_URL: http://llm:8000
+      AUDIO_SERVICE_URL: http://audio:8001
     env_file:
       - .env
     depends_on:
       - llm
+      - audio
     networks:
       - languageapp-net
 
@@ -28,8 +30,23 @@ services:
       - languageapp-net
     # In dev, Ollama runs natively on your machine.
     # The container reaches it via host.docker.internal:11434 (set in .env).
-    # No Ollama container needed here.
+
+  audio:
+    build:
+      context: ./apps/audio
+      dockerfile: Dockerfile
+    expose:
+      - "8001"
+    env_file:
+      - .env
+    volumes:
+      - audio_model_cache:/root/.cache  # persists Whisper + Kokoro model downloads
+    networks:
+      - languageapp-net
 
 networks:
   languageapp-net:
     driver: bridge
+
+volumes:
+  audio_model_cache:
