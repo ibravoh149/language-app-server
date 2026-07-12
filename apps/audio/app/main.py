@@ -3,15 +3,18 @@ from fastapi import FastAPI
 from app.routes import health, stt, tts
 from app.models.whisper import get_whisper_model
 from app.models.kokoro import get_kokoro_pipeline
+from app.models.piper import get_piper_voice
 from app.config import get_settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Load models at startup so the first request isn't slow
+    # Load all models at startup so the first request isn't slow.
+    # Piper will download the German voice model on first startup if not cached.
     s = get_settings()
     get_whisper_model()
     get_kokoro_pipeline(s.kokoro_default_lang)
+    get_piper_voice(s.piper_voice_de)
     yield
 
 

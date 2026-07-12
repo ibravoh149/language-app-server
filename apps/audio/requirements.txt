@@ -4,6 +4,7 @@ pydantic==2.7.1
 pydantic-settings==2.3.1
 faster-whisper==1.0.3
 kokoro>=0.9.4
+piper-tts>=1.2.0
 soundfile>=0.12.1
 numpy>=1.26.0
 python-multipart==0.0.9
