@@ -35,7 +35,7 @@ languageapp-backend/
 │   │   │   │   └── deepseek.py # DeepSeek cloud API
 │   │   │   └── routes/
 │   │   │       ├── health.py
-│   │   │       └── llm.py      # POST /llm/generate
+│   │   │       └── llm.py      # POST /llm/generate, POST /llm/stream
 │   │   └── Dockerfile
 │   └── audio/                  # Python — STT + TTS service, internal
 │       ├── app/
@@ -398,6 +398,52 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml exec ollama olla
 | `WHISPER_COMPUTE_TYPE` | `int8` | `int8` is fastest on CPU. Use `float16` on GPU |
 | `KOKORO_DEFAULT_VOICE` | `af_heart` | Default TTS voice. See `GET /tts/voices` for all options |
 | `KOKORO_DEFAULT_LANG` | `a` | Default TTS language code: `a`=American English, `b`=British English, `e`=Spanish, `f`=French, `j`=Japanese, `z`=Mandarin |
+
+---
+
+## LLM service API
+
+### `POST /llm/generate` — Full response
+
+Waits for the complete response then returns it. Best for short tasks (grammar check, vocabulary lookup).
+
+**Request:**
+```json
+{
+  "task": "translation",
+  "prompt": "Translate hello to French",
+  "system": "You are a language tutor."
+}
+```
+
+**Response:**
+```json
+{
+  "result": "Bonjour",
+  "provider": "OllamaProvider"
+}
+```
+
+### `POST /llm/stream` — Token-by-token SSE stream
+
+Returns a `text/event-stream` response. Best for longer responses (conversation, explanations) where you want text to appear as it's generated.
+
+**Request:** same shape as `/llm/generate`
+
+**Stream events:**
+```
+data: {"token": "Bon"}
+data: {"token": "jour"}
+data: {"token": ","}
+data: {"token": " comment"}
+data: {"token": " allez-vous"}
+data: [DONE]
+```
+
+On error:
+```
+data: {"error": "something went wrong"}
+```
 
 ---
 
