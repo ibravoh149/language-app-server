@@ -22,20 +22,32 @@ languageapp-backend/
 │   │   │   ├── main.ts
 │   │   │   ├── app.module.ts
 │   │   │   ├── app.controller.ts
-│   │   │   └── app.service.ts  # callLlm() proxies requests to Python service
+│   │   │   └── app.service.ts  # proxies requests to llm and audio services
 │   │   └── Dockerfile
-│   └── llm/                    # Python — LLM routing service, internal
+│   ├── llm/                    # Python — LLM routing service, internal
+│   │   ├── app/
+│   │   │   ├── main.py
+│   │   │   ├── config.py       # builds providers and router from env vars
+│   │   │   ├── router.py       # maps task_type -> provider
+│   │   │   ├── providers/
+│   │   │   │   ├── base.py     # LLMProvider interface
+│   │   │   │   ├── ollama.py   # local / self-hosted Ollama
+│   │   │   │   └── deepseek.py # DeepSeek cloud API
+│   │   │   └── routes/
+│   │   │       ├── health.py
+│   │   │       └── llm.py      # POST /llm/generate
+│   │   └── Dockerfile
+│   └── audio/                  # Python — STT + TTS service, internal
 │       ├── app/
 │       │   ├── main.py
-│       │   ├── config.py       # builds providers and router from env vars
-│       │   ├── router.py       # maps task_type -> provider
-│       │   ├── providers/
-│       │   │   ├── base.py     # LLMProvider interface
-│       │   │   ├── ollama.py   # local / self-hosted Ollama
-│       │   │   └── deepseek.py # DeepSeek cloud API
+│       │   ├── config.py
+│       │   ├── models/
+│       │   │   ├── whisper.py  # Faster-Whisper model loader
+│       │   │   └── kokoro.py   # Kokoro pipeline loader (one per language)
 │       │   └── routes/
 │       │       ├── health.py
-│       │       └── llm.py      # POST /llm/generate
+│       │       ├── stt.py      # POST /stt/transcribe
+│       │       └── tts.py      # POST /tts/synthesize, GET /tts/voices
 │       └── Dockerfile
 ├── scripts/
 │   └── ollama-entrypoint.sh    # auto-pulls model on first Ollama container start
@@ -52,12 +64,16 @@ languageapp-backend/
 - [Node.js](https://nodejs.org) 20+
 - [Python](https://www.python.org) 3.12+
 - [Ollama](https://ollama.com)
-- `espeak-ng` — required by Kokoro TTS (`brew install espeak-ng` on Mac)
-- `ffmpeg` — required by Faster-Whisper (`brew install ffmpeg` on Mac)
+- `espeak-ng` and `ffmpeg` — required by the audio service. Install once:
+
+```bash
+brew install espeak-ng ffmpeg
+```
 
 **For Docker development / production:**
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 - [Ollama](https://ollama.com)
+- `espeak-ng` and `ffmpeg` are installed automatically inside the Docker container — no action needed.
 
 ---
 
@@ -86,11 +102,12 @@ ollama pull qwen2.5-coder:14b     # pull if not present
 cp .env.example .env
 ```
 
-Open `.env` and make two changes:
+Open `.env` and make these changes for native dev (overriding the Docker hostnames):
 
 ```bash
 OLLAMA_MODEL=qwen2.5-coder:14b
-LLM_SERVICE_URL=http://localhost:8000   # override the Docker hostname
+LLM_SERVICE_URL=http://localhost:8000
+AUDIO_SERVICE_URL=http://localhost:8001
 ```
 
 #### 3. Start the Python LLM service
@@ -105,7 +122,7 @@ uvicorn app.main:app --reload --port 8000
 
 #### 4. Start the Python audio service (separate terminal)
 
-On first start, Faster-Whisper and Kokoro will download their models automatically. This takes a few minutes once — after that they're cached locally.
+On first start, Faster-Whisper and Kokoro will download their models automatically (~800MB total). This takes a few minutes once — after that they're cached at `~/.cache/huggingface/` and load in seconds.
 
 ```bash
 cd apps/audio
@@ -194,6 +211,13 @@ docker compose up
 Services will be available at:
 - NestJS API → `http://localhost:3000`
 - Python LLM → internal only (not exposed outside Docker)
+- Python Audio → internal only (not exposed outside Docker)
+
+On first start, the audio service will download Faster-Whisper and Kokoro models (~800MB). Progress is visible in the logs:
+
+```bash
+docker compose logs -f audio
+```
 
 #### 4. Verify everything is running
 
@@ -219,19 +243,22 @@ docker compose up -d
 # Stop stack
 docker compose down
 
-# Stop stack and remove volumes (wipes data)
+# Stop stack and remove volumes (wipes model cache — forces re-download)
 docker compose down -v
 
 # View logs for a specific service
 docker compose logs -f api
 docker compose logs -f llm
+docker compose logs -f audio   # watch model download progress on first start
 
 # Rebuild a single service
 docker compose up --build api
+docker compose up --build audio
 
 # Open a shell inside a running container
 docker compose exec api sh
 docker compose exec llm sh
+docker compose exec audio sh
 ```
 
 ---
@@ -343,16 +370,79 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml exec ollama olla
 
 ## Environment variables reference
 
+**NestJS API**
+
 | Variable | Default | Description |
 |---|---|---|
 | `PORT` | `3000` | NestJS listen port |
 | `NODE_ENV` | `development` | `development` or `production` |
-| `LLM_SERVICE_URL` | `http://llm:8000` | Internal URL NestJS uses to reach Python service |
-| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434` | Ollama server URL. Use `http://ollama:11434` in prod |
+| `LLM_SERVICE_URL` | `http://llm:8000` | URL NestJS uses to reach the LLM service. Use `http://localhost:8000` for native dev |
+| `AUDIO_SERVICE_URL` | `http://audio:8001` | URL NestJS uses to reach the audio service. Use `http://localhost:8001` for native dev |
+
+**LLM service**
+
+| Variable | Default | Description |
+|---|---|---|
+| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434` | Ollama server URL. Use `http://ollama:11434` when Ollama runs as a container |
 | `OLLAMA_MODEL` | `deepseek-r1:14b` | Any model available in your Ollama instance |
 | `DEEPSEEK_API_KEY` | _(empty)_ | DeepSeek cloud API key. Provider is disabled if empty |
 | `DEEPSEEK_MODEL` | `deepseek-chat` | DeepSeek model name |
 | `TASK_ROUTING` | all → `ollama` | JSON map of task name to provider name |
+
+**Audio service**
+
+| Variable | Default | Description |
+|---|---|---|
+| `WHISPER_MODEL_SIZE` | `small` | Faster-Whisper model size: `tiny`, `base`, `small`, `medium`, `large-v3`. Use `small` for dev, `medium`/`large-v3` for prod |
+| `WHISPER_DEVICE` | `cpu` | `cpu` or `cuda` (GPU) |
+| `WHISPER_COMPUTE_TYPE` | `int8` | `int8` is fastest on CPU. Use `float16` on GPU |
+| `KOKORO_DEFAULT_VOICE` | `af_heart` | Default TTS voice. See `GET /tts/voices` for all options |
+| `KOKORO_DEFAULT_LANG` | `a` | Default TTS language code: `a`=American English, `b`=British English, `e`=Spanish, `f`=French, `j`=Japanese, `z`=Mandarin |
+
+---
+
+## Audio service API
+
+### `POST /stt/transcribe` — Speech to text
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `file` | audio file | Yes | Any format supported by ffmpeg (wav, mp3, m4a, etc.) |
+| `language` | string | No | Force a language code (e.g. `en`, `fr`). Omit for auto-detect |
+| `word_timestamps` | bool | No | Return per-word start/end times for word highlighting. Default `false` |
+
+**Response:**
+```json
+{
+  "text": "Hello how are you",
+  "language": "en",
+  "language_probability": 0.99,
+  "duration": 2.5,
+  "words": [
+    { "word": "Hello", "start": 0.0,  "end": 0.42 },
+    { "word": "how",   "start": 0.44, "end": 0.68 },
+    { "word": "are",   "start": 0.70, "end": 0.91 },
+    { "word": "you",   "start": 0.93, "end": 1.20 }
+  ]
+}
+```
+
+`words` is only present when `word_timestamps=true`.
+
+### `POST /tts/synthesize` — Text to speech
+
+Returns a WAV audio stream.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `text` | string | Yes | Text to synthesize |
+| `voice` | string | No | Voice ID. Overrides `KOKORO_DEFAULT_VOICE` |
+| `lang_code` | string | No | Language code. Overrides `KOKORO_DEFAULT_LANG` |
+| `speed` | float | No | Playback speed. Default `1.0`, range `0.5`–`2.0` |
+
+### `GET /tts/voices` — List available voices
+
+Returns all supported voices and language codes.
 
 ---
 
