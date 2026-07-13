@@ -13,6 +13,7 @@ Backend monorepo for a language learning app. Three services, all containerised 
 ## Key architecture decisions
 
 - **NestJS is the gateway.** Mobile → NestJS → (llm service or audio service). Mobile never calls Python directly.
+- **Database.** PostgreSQL via Drizzle ORM. Schema in `apps/api/src/database/schema.ts`. Migrations in `apps/api/drizzle/`. Use `yarn db:generate` then `yarn db:migrate` to evolve the schema.
 - **LLM provider pattern.** Two providers: `ollama` (local/self-hosted) and `deepseek` (cloud). Selected per task via `TASK_ROUTING` env var. No code changes needed to switch providers.
 - **LLM streaming.** `POST /llm/generate` returns full JSON. `POST /llm/stream` returns SSE token stream. Use stream for conversation/long responses, generate for short tasks.
 - **TTS dual-engine.** Kokoro handles English, Spanish, French, Hindi, Italian, Japanese, Portuguese, Mandarin. Piper handles everything else (German, Dutch, Polish, Russian, Turkish, Arabic, and 14 more). Mobile sends `"language": "de"` and the backend routes automatically.
@@ -25,6 +26,44 @@ Backend monorepo for a language learning app. Three services, all containerised 
 ```bash
 brew install espeak-ng ffmpeg   # required by audio service
 ```
+
+### Database setup (one-time, native dev)
+
+Create the local database:
+```bash
+createdb languageapp   # uses your local PostgreSQL install
+```
+
+Set in `.env`:
+```
+DATABASE_URL=postgresql://<your-mac-username>@localhost:5432/languageapp
+```
+If your local PostgreSQL has a password, use: `postgresql://user:password@localhost:5432/languageapp`
+
+Run migrations to create tables:
+```bash
+cd apps/api && yarn db:migrate
+```
+
+### Drizzle workflow
+
+All commands run from `apps/api/`:
+
+| Command | What it does |
+|---|---|
+| `yarn db:generate` | Generates a new SQL migration file from schema changes |
+| `yarn db:migrate` | Applies pending migrations to the database |
+| `yarn db:push` | Pushes schema directly without migration files (dev only) |
+| `yarn db:pull` | Introspects an existing database and generates schema |
+| `yarn db:studio` | Opens Drizzle Studio (visual DB browser) at localhost:4983 |
+
+**Typical flow when changing the schema:**
+1. Edit `src/database/schema.ts`
+2. `yarn db:generate` — creates `drizzle/<timestamp>_description.sql`
+3. Review the generated SQL
+4. `yarn db:migrate` — applies it
+
+Commit the generated migration file alongside the schema change.
 
 ### Native dev (recommended for day-to-day)
 ```bash
@@ -73,6 +112,23 @@ Available task types (used in `POST /llm/generate` and `POST /llm/stream`):
 - **Piper:** `de`, `nl`, `pl`, `ru`, `tr`, `ar`, `cs`, `sv`, `nb`, `da`, `fi`, `el`, `uk`, `ko`, `vi`, `hu`, `ro`, `sk`, `ca`, `sr`
 
 ## Extending the project
+
+**Add a database table:** `apps/api/src/database/schema.ts` → add table, then `yarn db:generate && yarn db:migrate`
+
+**Inject the database into a service:**
+```typescript
+import { Inject } from '@nestjs/common';
+import { DB, DrizzleDB } from '../database/database.module';
+import { users } from '../database/schema';
+
+constructor(@Inject(DB) private readonly db: DrizzleDB) {}
+
+// then use:
+await this.db.select().from(users).where(eq(users.email, 'x@x.com'));
+await this.db.insert(users).values({ email: 'x@x.com' });
+await this.db.update(users).set({ email: 'y@y.com' }).where(eq(users.id, 1));
+await this.db.delete(users).where(eq(users.id, 1));
+```
 
 **Add an LLM task type:** `apps/llm/app/router.py` → `TaskType` enum
 

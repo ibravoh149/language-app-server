@@ -13,10 +13,32 @@ services:
     env_file:
       - .env
     depends_on:
-      - llm
-      - audio
+      postgres:
+        condition: service_healthy
+      llm:
+        condition: service_started
+      audio:
+        condition: service_started
     networks:
       - languageapp-net
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-languageapp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-languageapp}
+      POSTGRES_DB: ${POSTGRES_DB:-languageapp}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - languageapp-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-languageapp}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   llm:
     build:
@@ -50,3 +72,4 @@ networks:
 
 volumes:
   audio_model_cache:
+  postgres_data:
