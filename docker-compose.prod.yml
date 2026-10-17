@@ -6,9 +6,11 @@ services:
 
   llm:
     restart: always
-    depends_on:
-      ollama:
-        condition: service_healthy   # waits until Ollama is ready before starting
+    # Production routes LLM tasks to DeepSeek (or another hosted model) via TASK_ROUTING.
+    # If you enable the self-hosted ollama service below, also uncomment:
+    # depends_on:
+    #   ollama:
+    #     condition: service_healthy   # waits until Ollama is ready before starting
     # In prod, set TASK_ROUTING in .env to route tasks to "deepseek" or "ollama"
 
   audio:
