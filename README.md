@@ -111,7 +111,7 @@ OLLAMA_MODEL=qwen2.5:7b
 
 ```bash
 createdb languageapp
-cd apps/api && yarn install && yarn db:migrate
+cd apps/api && yarn install && yarn db:push
 ```
 
 ### 3. Start the services (one terminal each)
