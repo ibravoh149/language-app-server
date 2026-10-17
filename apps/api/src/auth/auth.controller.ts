@@ -3,7 +3,9 @@ import { RateLimiter } from '../common/rate-limiter.service';
 import { validate } from '../common/validate';
 import { AccessGuard, UserId } from './auth.guard';
 import {
+  AppleSchema,
   ForgotPasswordSchema,
+  GoogleSchema,
   LoginSchema,
   RefreshSchema,
   ResetPasswordSchema,
@@ -11,6 +13,7 @@ import {
   VerifyEmailSchema,
 } from './auth.schemas';
 import { AuthService } from './auth.service';
+import { OAuthService } from './oauth.service';
 import { TokensService } from './tokens.service';
 
 /** Email + password auth. Contract: docs/api/auth-onboarding.md */
@@ -20,6 +23,7 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly tokens: TokensService,
     private readonly limiter: RateLimiter,
+    private readonly oauth: OAuthService,
   ) {}
 
   @Post('signup')
@@ -73,6 +77,22 @@ export class AuthController {
   async refresh(@Body() body: unknown, @Ip() ip: string, @Headers('user-agent') ua?: string) {
     this.limiter.hit(`refresh:${ip}`, 60, 900);
     return { tokens: await this.tokens.refresh(validate(RefreshSchema, body).refreshToken, ua) };
+  }
+
+  @Post('oauth/google')
+  @HttpCode(200)
+  google(@Body() body: unknown, @Ip() ip: string, @Headers('user-agent') ua?: string) {
+    this.limiter.hit(`oauth:${ip}`, 30, 900);
+    const { idToken, profile, assessmentId } = validate(GoogleSchema, body);
+    return this.oauth.signIn('google', idToken, { profile, assessmentId }, ua);
+  }
+
+  @Post('oauth/apple')
+  @HttpCode(200)
+  apple(@Body() body: unknown, @Ip() ip: string, @Headers('user-agent') ua?: string) {
+    this.limiter.hit(`oauth:${ip}`, 30, 900);
+    const { identityToken, name, profile, assessmentId } = validate(AppleSchema, body);
+    return this.oauth.signIn('apple', identityToken, { name, profile, assessmentId }, ua);
   }
 
   @Post('logout')

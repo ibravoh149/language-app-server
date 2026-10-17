@@ -7,11 +7,12 @@ import { AccessGuard, VerifiedGuard } from './auth.guard';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { CodesService } from './codes.service';
+import { OAuthService } from './oauth.service';
 import { TokensService } from './tokens.service';
 
 @Module({
   controllers: [AuthController, MeController],
-  providers: [AuthService, TokensService, CodesService, UsersService, EmailService, RateLimiter, AccessGuard, VerifiedGuard],
+  providers: [AuthService, OAuthService, TokensService, CodesService, UsersService, EmailService, RateLimiter, AccessGuard, VerifiedGuard],
   exports: [AuthService, TokensService, UsersService, RateLimiter, AccessGuard, VerifiedGuard],
 })
 export class AuthModule {}
