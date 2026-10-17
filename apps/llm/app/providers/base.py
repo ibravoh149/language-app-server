@@ -1,4 +1,20 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+
+@dataclass
+class GenerateOptions:
+    """Per-request limits. Every call should be bounded to keep LLM spend low (TRACKER D10)."""
+    max_tokens: int | None = None
+    temperature: float | None = None
+    json: bool = False  # ask the model for a single JSON object
+
+
+@dataclass
+class GenerateResult:
+    text: str
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
 
 
 class LLMProvider(ABC):
@@ -10,9 +26,12 @@ class LLMProvider(ABC):
         return messages
 
     @abstractmethod
-    async def generate(self, prompt: str, system: str | None = None) -> str: ...
+    async def generate(
+        self, prompt: str, system: str | None = None, options: GenerateOptions | None = None
+    ) -> GenerateResult: ...
 
     async def stream(self, prompt: str, system: str | None = None):
         # Default fallback: return full response as a single chunk
         # Providers that support real streaming override this
-        yield await self.generate(prompt=prompt, system=system)
+        result = await self.generate(prompt=prompt, system=system)
+        yield result.text

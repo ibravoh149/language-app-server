@@ -8,6 +8,7 @@ class TaskType(str, Enum):
     VOCABULARY = "vocabulary"
     CONVERSATION = "conversation"
     PRONUNCIATION_FEEDBACK = "pronunciation_feedback"
+    PLACEMENT_SCORING = "placement_scoring"
 
 
 class LLMRouter:

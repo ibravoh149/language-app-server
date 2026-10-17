@@ -42,5 +42,9 @@ def build_router() -> LLMRouter:
             model=s.deepseek_model,
         )
 
-    routing = {TaskType(k): v for k, v in json.loads(s.task_routing).items()}
+    # Tasks missing from TASK_ROUTING fall back to ollama (dev) or deepseek (when configured),
+    # so adding a task type never breaks an existing .env.
+    fallback = "deepseek" if "deepseek" in providers else "ollama"
+    routing = {t: fallback for t in TaskType}
+    routing.update({TaskType(k): v for k, v in json.loads(s.task_routing).items()})
     return LLMRouter(providers=providers, routing=routing)
