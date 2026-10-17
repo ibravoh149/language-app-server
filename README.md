@@ -1,504 +1,514 @@
 # languageapp-backend
 
-Monorepo for the two backend services:
+Backend for **Sprachbar**, a speaking-first language-learning app. The mobile
+client lives in [language-app-mobile](https://github.com/ibravoh149/language-app-mobile).
 
-| Service | Stack | Port |
+This repository is a small monorepo with three services and a PostgreSQL
+database, all runnable natively for development or together with Docker Compose.
+
+| Service | Stack | Port | Exposure | Responsibility |
+|---|---|---|---|---|
+| [`apps/api`](apps/api) | NestJS 10, Drizzle ORM | `3000` | **Public** | Gateway for the mobile app: routing, persistence, and (soon) auth and profiles |
+| [`apps/llm`](apps/llm) | Python 3.12, FastAPI | `8000` | Internal | Task-based LLM routing to Ollama or DeepSeek |
+| [`apps/audio`](apps/audio) | Python 3.12, FastAPI | `8001` | Internal | Speech-to-text (Faster-Whisper) and text-to-speech (Kokoro, Piper) |
+| `postgres` | PostgreSQL 16 | `5432` | Internal | Application data |
+
+```text
+                       ┌──────────────────────────────┐
+  Mobile app ──HTTP──▶ │  api  (NestJS, /api/v1)      │ ──▶ PostgreSQL
+                       └──────┬────────────────┬──────┘
+                              │                │
+                     ┌────────▼──────┐  ┌──────▼─────────┐
+                     │ llm (FastAPI) │  │ audio (FastAPI)│
+                     │ Ollama │ Deep │  │ Whisper·Kokoro │
+                     │ Seek          │  │ Piper          │
+                     └───────────────┘  └────────────────┘
+```
+
+The mobile app only ever talks to `api`. The Python services are never exposed
+to clients, and provider names and credentials stay inside the backend.
+
+> **Project status — early development.** The service skeletons, provider
+> routing and speech adapters work, but there is no authentication, request
+> validation or rate limiting yet, and the database only holds a minimal
+> `users` table. Do not expose this stack publicly as-is. See
+> [Known limitations](#known-limitations).
+
+---
+
+## Contents
+
+- [Quick start](#quick-start)
+- [Local development (native)](#local-development-native)
+- [Local development (Docker)](#local-development-docker)
+- [Database](#database)
+- [Configuration](#configuration)
+- [API reference](#api-reference)
+- [LLM providers and task routing](#llm-providers-and-task-routing)
+- [Speech engines](#speech-engines)
+- [Production deployment](#production-deployment)
+- [Project structure](#project-structure)
+- [Extending the backend](#extending-the-backend)
+- [Known limitations](#known-limitations)
+
+---
+
+## Quick start
+
+The fastest route to a running stack, assuming Docker Desktop and
+[Ollama](https://ollama.com) are installed:
+
+```bash
+ollama pull qwen2.5:7b             # or any chat model you prefer
+cp .env.example .env               # then set OLLAMA_MODEL to that model
+docker compose up --build
+curl http://localhost:3000/api/v1/health
+```
+
+The first start of the audio service downloads Whisper and Kokoro models
+(roughly 800 MB) and the default German Piper voice. Follow progress with
+`docker compose logs -f audio`.
+
+---
+
+## Local development (native)
+
+Running each service natively gives hot reload and easier debugging. It is the
+recommended day-to-day setup.
+
+### Prerequisites
+
+| Tool | Version | Used by |
 |---|---|---|
-| `apps/api` | NestJS | `3000` (public) |
-| `apps/llm` | Python / FastAPI | `8000` (internal only) |
-| `apps/audio` | Python / FastAPI | `8001` (internal only) |
-
-The NestJS API is the only service exposed to the outside world. The LLM and audio services are internal — only `api` talks to them.
-
----
-
-## Project structure
-
-```
-languageapp-backend/
-├── apps/
-│   ├── api/                    # NestJS — main API, public-facing
-│   │   ├── src/
-│   │   │   ├── main.ts
-│   │   │   ├── app.module.ts
-│   │   │   ├── app.controller.ts
-│   │   │   └── app.service.ts  # proxies requests to llm and audio services
-│   │   └── Dockerfile
-│   ├── llm/                    # Python — LLM routing service, internal
-│   │   ├── app/
-│   │   │   ├── main.py
-│   │   │   ├── config.py       # builds providers and router from env vars
-│   │   │   ├── router.py       # maps task_type -> provider
-│   │   │   ├── providers/
-│   │   │   │   ├── base.py     # LLMProvider interface
-│   │   │   │   ├── ollama.py   # local / self-hosted Ollama
-│   │   │   │   └── deepseek.py # DeepSeek cloud API
-│   │   │   └── routes/
-│   │   │       ├── health.py
-│   │   │       └── llm.py      # POST /llm/generate, POST /llm/stream
-│   │   └── Dockerfile
-│   └── audio/                  # Python — STT + TTS service, internal
-│       ├── app/
-│       │   ├── main.py
-│       │   ├── config.py
-│       │   ├── models/
-│       │   │   ├── whisper.py  # Faster-Whisper model loader
-│       │   │   └── kokoro.py   # Kokoro pipeline loader (one per language)
-│       │   └── routes/
-│       │       ├── health.py
-│       │       ├── stt.py      # POST /stt/transcribe
-│       │       └── tts.py      # POST /tts/synthesize, GET /tts/voices
-│       └── Dockerfile
-├── scripts/
-│   └── ollama-entrypoint.sh    # auto-pulls model on first Ollama container start
-├── docker-compose.yml          # dev
-├── docker-compose.prod.yml     # prod overrides
-└── .env.example
-```
-
----
-
-## Prerequisites
-
-**For native development (recommended):**
-- [Node.js](https://nodejs.org) 20+
-- [Python](https://www.python.org) 3.12+
-- [Ollama](https://ollama.com)
-- `espeak-ng` and `ffmpeg` — required by the audio service. Install once:
+| Node.js + Yarn | 20+ | `api` |
+| Python | 3.12+ | `llm`, `audio` |
+| PostgreSQL | 16 recommended | `api` |
+| Ollama | latest | `llm` (unless you route everything to DeepSeek) |
+| `espeak-ng`, `ffmpeg` | any recent | `audio` (phonemisation and audio decoding) |
 
 ```bash
-brew install espeak-ng ffmpeg
+brew install espeak-ng ffmpeg       # macOS
 ```
 
-**For Docker development / production:**
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-- [Ollama](https://ollama.com)
-- `espeak-ng` and `ffmpeg` are installed automatically inside the Docker container — no action needed.
-
----
-
-## Local development
-
-You do not need Docker for day-to-day development. Running services natively gives you hot reload, faster startup, and easier debugging. Use Docker when you want to test services talking to each other, or when deploying.
-
-| Scenario | Approach |
-|---|---|
-| Day-to-day development | Native |
-| Testing inter-service communication | Docker Compose |
-| Deploying | Docker Compose |
-
-### Option A — Native (recommended for dev)
-
-#### 1. Pull your model in Ollama
-
-```bash
-ollama list                       # check what you have
-ollama pull qwen2.5-coder:14b     # pull if not present
-```
-
-#### 2. Create your env file
+### 1. Configure the environment
 
 ```bash
 cp .env.example .env
 ```
 
-Open `.env` and make these changes for native dev (overriding the Docker hostnames):
+For native development, point the gateway at `localhost` instead of the Docker
+hostnames, and set your database and model:
 
 ```bash
-OLLAMA_MODEL=qwen2.5-coder:14b
+DATABASE_URL=postgresql://<user>@localhost:5432/languageapp
 LLM_SERVICE_URL=http://localhost:8000
 AUDIO_SERVICE_URL=http://localhost:8001
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2.5:7b
 ```
 
-#### 3. Start the Python LLM service
+### 2. Create the database
 
 ```bash
+createdb languageapp
+cd apps/api && yarn install && yarn db:migrate
+```
+
+### 3. Start the services (one terminal each)
+
+```bash
+# LLM service
 cd apps/llm
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-#### 4. Start the Python audio service (separate terminal)
-
-On first start, Faster-Whisper and Kokoro will download their models automatically (~800MB total). This takes a few minutes once — after that they're cached at `~/.cache/huggingface/` and load in seconds.
-
 ```bash
+# Audio service — first start downloads models
 cd apps/audio
-python -m venv .venv
-source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8001
 ```
 
-#### 5. Start the NestJS API (separate terminal)
-
 ```bash
+# API gateway
 cd apps/api
-yarn install
-yarn start:dev                   # hot reload on file changes
+yarn start:dev
 ```
 
-Services will be available at:
-- NestJS API → `http://localhost:3000`
-- Python LLM → `http://localhost:8000`
-- Python Audio → `http://localhost:8001`
+Each Python service keeps its own `.venv`; never share virtual environments
+between them.
 
-#### 6. Verify everything is running
+### 4. Verify
 
 ```bash
-# Health checks
-curl http://localhost:3000/api/v1/health
-curl http://localhost:8000/health
-curl http://localhost:8001/health
-
-# Test STT (transcribe an audio file)
-curl -X POST http://localhost:8001/stt/transcribe \
-  -F "file=@/path/to/audio.wav"
-
-# Test TTS (synthesize speech)
-curl -X POST http://localhost:8001/tts/synthesize \
-  -H "Content-Type: application/json" \
-  -d '{"text": "Hello, how are you?", "voice": "af_heart"}' \
-  --output speech.wav
-
-# List available TTS voices
-curl http://localhost:8001/tts/voices
-
-# Test LLM generate
-curl -X POST http://localhost:8000/llm/generate \
-  -H "Content-Type: application/json" \
-  -d '{"task": "translation", "prompt": "Translate hello to French"}'
+curl http://localhost:3000/api/v1/health    # {"status":"ok","service":"api"}
+curl http://localhost:8000/health           # {"status":"ok","service":"llm"}
+curl http://localhost:8001/health           # {"status":"ok","service":"audio"}
 ```
 
 ---
 
-### Option B — Docker Compose
+## Local development (Docker)
 
-#### 1. Pull your model in Ollama
-
-```bash
-ollama list
-ollama pull qwen2.5-coder:14b
-```
-
-#### 2. Create your env file
+Use Compose to exercise the services together or to mirror deployment.
+Ollama still runs on your host in development; containers reach it through
+`host.docker.internal:11434`.
 
 ```bash
 cp .env.example .env
+docker compose up --build        # first run, or after code changes
+docker compose up -d             # background
+docker compose logs -f audio     # follow one service
+docker compose exec api sh       # shell into a container
+docker compose down              # stop
+docker compose down -v           # stop and delete volumes (database + model cache)
 ```
 
-Open `.env` and set:
+Only port `3000` (API) and `5432` (Postgres) are published to the host. The
+`audio_model_cache` volume keeps Whisper and Kokoro downloads across restarts.
 
-```bash
-OLLAMA_MODEL=qwen2.5-coder:14b
-# LLM_SERVICE_URL stays as http://llm:8000 (Docker internal hostname)
-```
+---
 
-#### 3. Start the stack
+## Database
 
-```bash
-docker compose up --build
-```
+PostgreSQL accessed through [Drizzle ORM](https://orm.drizzle.team). The schema
+lives in [`apps/api/src/database/schema.ts`](apps/api/src/database/schema.ts)
+and migrations are written to `apps/api/drizzle/`.
 
-On subsequent starts (no code changes):
+All commands run from `apps/api/` and read `DATABASE_URL` from the repository
+root `.env`:
 
-```bash
-docker compose up
-```
+| Command | Purpose |
+|---|---|
+| `yarn db:generate` | Generate a SQL migration from schema changes |
+| `yarn db:migrate` | Apply pending migrations |
+| `yarn db:push` | Push the schema directly, without a migration (development only) |
+| `yarn db:pull` | Introspect an existing database into a schema |
+| `yarn db:studio` | Open Drizzle Studio at `localhost:4983` |
 
-Services will be available at:
-- NestJS API → `http://localhost:3000`
-- Python LLM → internal only (not exposed outside Docker)
-- Python Audio → internal only (not exposed outside Docker)
+Changing the schema:
 
-On first start, the audio service will download Faster-Whisper and Kokoro models (~800MB). Progress is visible in the logs:
+1. Edit `src/database/schema.ts`.
+2. `yarn db:generate` and review the generated SQL.
+3. `yarn db:migrate`.
+4. Commit the schema and the migration together.
 
-```bash
-docker compose logs -f audio
-```
+Inject the database anywhere in the API:
 
-#### 4. Verify everything is running
+```ts
+import { Inject } from '@nestjs/common';
+import { eq } from 'drizzle-orm';
+import { DB, DrizzleDB } from '../database/database.module';
+import { users } from '../database/schema';
 
-```bash
-# NestJS health check
-curl http://localhost:3000/api/v1/health
+constructor(@Inject(DB) private readonly db: DrizzleDB) {}
+
+await this.db.select().from(users).where(eq(users.email, 'x@example.com'));
 ```
 
 ---
 
-## Useful Docker commands
+## Configuration
 
-```bash
-# Start stack (build images first)
-docker compose up --build
+Everything is driven by environment variables in `.env`. Switching LLM
+provider, Whisper size or TTS voice never requires a code change. See
+[`.env.example`](.env.example) for the annotated full list.
 
-# Start stack (no rebuild)
-docker compose up
+### API (`apps/api`)
 
-# Start in background
-docker compose up -d
-
-# Stop stack
-docker compose down
-
-# Stop stack and remove volumes (wipes model cache — forces re-download)
-docker compose down -v
-
-# View logs for a specific service
-docker compose logs -f api
-docker compose logs -f llm
-docker compose logs -f audio   # watch model download progress on first start
-
-# Rebuild a single service
-docker compose up --build api
-docker compose up --build audio
-
-# Open a shell inside a running container
-docker compose exec api sh
-docker compose exec llm sh
-docker compose exec audio sh
-```
-
----
-
-## LLM providers
-
-Two providers are implemented. Both use the OpenAI-compatible API — same interface, different URLs.
-
-| Provider | When to use | Config needed |
+| Variable | Default | Description |
 |---|---|---|
-| `ollama` | Local dev, self-hosted prod | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` |
-| `deepseek` | Cloud prod | `DEEPSEEK_API_KEY` |
+| `PORT` | `3000` | Listen port |
+| `NODE_ENV` | `development` | `development` or `production` |
+| `DATABASE_URL` | — (required) | PostgreSQL connection string |
+| `LLM_SERVICE_URL` | `http://llm:8000` | Use `http://localhost:8000` natively |
+| `AUDIO_SERVICE_URL` | `http://audio:8001` | Use `http://localhost:8001` natively |
 
-### Task routing
+### LLM service (`apps/llm`)
 
-Every request to the LLM service includes a `task` field. The router maps each task to a provider using the `TASK_ROUTING` env var (JSON).
+| Variable | Default | Description |
+|---|---|---|
+| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434` | Ollama server URL |
+| `OLLAMA_MODEL` | `deepseek-r1:14b` | Any model available in that Ollama instance |
+| `DEEPSEEK_API_KEY` | _(empty)_ | Enables the DeepSeek provider when set |
+| `DEEPSEEK_MODEL` | `deepseek-chat` | DeepSeek model name |
+| `TASK_ROUTING` | every task → `ollama` | JSON map of task → provider |
 
-Available tasks: `translation`, `grammar_check`, `vocabulary`, `conversation`, `pronunciation_feedback`
+### Audio service (`apps/audio`)
 
-**Dev — all tasks go to local Ollama:**
+| Variable | Default | Description |
+|---|---|---|
+| `WHISPER_MODEL_SIZE` | `small` | `tiny`, `base`, `small`, `medium`, `large-v3` |
+| `WHISPER_DEVICE` | `cpu` | `cpu` or `cuda` |
+| `WHISPER_COMPUTE_TYPE` | `int8` | `int8` on CPU, `float16` on GPU |
+| `KOKORO_DEFAULT_VOICE` | `af_heart` | Default Kokoro voice |
+| `KOKORO_DEFAULT_LANG` | `a` | Default Kokoro language code (`a` American English, `b` British, `e` Spanish, `f` French, …) |
+| `PIPER_VOICE_<LANG>` | per language | Default Piper voice, e.g. `PIPER_VOICE_DE=de_DE-thorsten-medium` |
+| `ELEVENLABS_API_KEY` | _(empty)_ | Optional cloud TTS; disabled when empty |
+| `ELEVENLABS_DEFAULT_VOICE_ID` | Rachel | Voice used when the request names none |
+| `ELEVENLABS_MODEL` | `eleven_turbo_v2_5` | ElevenLabs model |
+
+---
+
+## API reference
+
+### Public gateway — `http://<host>:3000/api/v1`
+
+These are the only endpoints clients should call.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Liveness check |
+| `POST` | `/llm/generate` | Full LLM response as JSON |
+| `POST` | `/llm/stream` | LLM response as a Server-Sent Events token stream |
+| `POST` | `/tts/synthesize` | Synthesised speech (WAV, or MP3 for ElevenLabs) |
+| `GET` | `/tts/voices` | Voice catalogue and supported languages |
+
+Speech-to-text is implemented in the audio service and wrapped by
+`AppService.transcribeAudio`, but no public gateway route exposes it yet.
+
+#### `POST /llm/generate`
 
 ```bash
+curl -X POST http://localhost:3000/api/v1/llm/generate \
+  -H "Content-Type: application/json" \
+  -d '{"task":"translation","prompt":"Translate \"good morning\" to German","system":"You are a concise language tutor."}'
+```
+
+```json
+{ "result": "Guten Morgen", "provider": "OllamaProvider" }
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `task` | string | yes | `translation`, `grammar_check`, `vocabulary`, `conversation`, `pronunciation_feedback` |
+| `prompt` | string | yes | User message |
+| `system` | string | no | System instruction |
+
+#### `POST /llm/stream`
+
+Same body as `/llm/generate`. Responds with `text/event-stream`:
+
+```text
+data: {"token": "Guten"}
+data: {"token": " Morgen"}
+data: [DONE]
+```
+
+Errors that occur mid-stream arrive as `data: {"error": "..."}`.
+
+#### `POST /tts/synthesize`
+
+```bash
+curl -X POST http://localhost:3000/api/v1/tts/synthesize \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Hallo, wie geht es dir?","language":"de"}' \
+  --output speech.wav
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `text` | string | yes | Text to speak |
+| `language` | string | no | ISO code (`de`, `en`, `fr`, …). Picks the engine automatically and takes precedence over `lang_code` |
+| `voice` | string | no | Engine-specific voice ID; defaults per language |
+| `lang_code` | string | no | Kokoro-only single-letter code, used when `language` is absent |
+| `speed` | number | no | Default `1.0`. Currently honoured by Kokoro only |
+| `engine` | string | no | `"elevenlabs"` forces the optional cloud engine |
+
+The response `Content-Type` is `audio/wav` for Kokoro/Piper and `audio/mpeg` for
+ElevenLabs.
+
+### Internal services
+
+For debugging only; not reachable from outside Docker.
+
+| Service | Method | Path | Description |
+|---|---|---|---|
+| llm | `GET` | `/health` | Liveness |
+| llm | `POST` | `/llm/generate`, `/llm/stream` | As above |
+| audio | `GET` | `/health` | Liveness |
+| audio | `POST` | `/stt/transcribe` | Multipart upload: `file`, optional `language`, optional `word_timestamps` |
+| audio | `POST` | `/tts/synthesize` | As above |
+| audio | `GET` | `/tts/voices` | As above |
+
+`/stt/transcribe` example and response:
+
+```bash
+curl -X POST http://localhost:8001/stt/transcribe \
+  -F "file=@sample.wav" -F "language=de" -F "word_timestamps=true"
+```
+
+```json
+{
+  "text": "Ich wohne in Berlin",
+  "language": "de",
+  "language_probability": 0.98,
+  "duration": 1.9,
+  "words": [{ "word": "Ich", "start": 0.0, "end": 0.21 }]
+}
+```
+
+`words` is only present when `word_timestamps=true`, and is intended for
+highlighting words as they are spoken.
+
+---
+
+## LLM providers and task routing
+
+Both providers use the OpenAI-compatible chat API, so they share one interface
+([`providers/base.py`](apps/llm/app/providers/base.py)).
+
+| Provider | Use for | Needs |
+|---|---|---|
+| `ollama` | Local development, self-hosted production | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` |
+| `deepseek` | Hosted production | `DEEPSEEK_API_KEY` |
+
+Every request names a `task`, and `TASK_ROUTING` maps tasks to providers:
+
+```bash
+# Development: everything local
 TASK_ROUTING={"translation":"ollama","grammar_check":"ollama","vocabulary":"ollama","conversation":"ollama","pronunciation_feedback":"ollama"}
-```
 
-**Prod early-stage — all tasks go to DeepSeek cloud:**
-
-```bash
+# Early production: everything on DeepSeek
 TASK_ROUTING={"translation":"deepseek","grammar_check":"deepseek","vocabulary":"deepseek","conversation":"deepseek","pronunciation_feedback":"deepseek"}
-```
 
-**Prod mixed — route by task:**
-
-```bash
+# Mixed
 TASK_ROUTING={"translation":"deepseek","grammar_check":"ollama","vocabulary":"ollama","conversation":"deepseek","pronunciation_feedback":"ollama"}
 ```
 
-Switching providers never requires a code change — only `.env` changes.
+A task routed to a provider that is not configured (for example `deepseek`
+without an API key) returns HTTP 400.
 
-### Adding a new provider
+---
 
-1. Create `apps/llm/app/providers/<name>.py` implementing `LLMProvider`
-2. Register it in `apps/llm/app/config.py` inside `build_router()`
-3. Use its name as a value in `TASK_ROUTING`
+## Speech engines
+
+### Speech-to-text
+
+[Faster-Whisper](https://github.com/SYSTRAN/faster-whisper) with voice-activity
+filtering. Omit `language` to auto-detect. Use `small` in development and
+`medium` or `large-v3` in production (the production Compose file sets `medium`).
+
+### Text-to-speech
+
+When a request includes `language`, the audio service routes it automatically:
+
+| Engine | Languages |
+|---|---|
+| [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) | `en`, `en-us`, `en-gb`, `es`, `fr`, `hi`, `it`, `ja`, `pt`, `zh` |
+| [Piper](https://github.com/rhasspy/piper) | `de`, `nl`, `pl`, `ru`, `tr`, `ar`, `cs`, `sv`, `nb`, `da`, `fi`, `el`, `uk`, `ko`, `vi`, `hu`, `ro`, `sk`, `ca`, `sr` |
+| ElevenLabs (optional) | Any; only when `engine: "elevenlabs"` and an API key is set |
+
+Piper voices download on first use from Hugging Face into
+`apps/audio/.piper_models/` (gitignored). At startup the service preloads Whisper,
+the default Kokoro pipeline and the default German Piper voice.
+
+The product direction is to run speech on the device where possible and keep
+the backend for reasoning, state and assessment; server speech remains available
+for gaps. See the shared `ARCHITECTURE-AND-SPEECH-FINDINGS.md` that sits next to
+both repositories.
 
 ---
 
 ## Production deployment
 
-### Without self-hosted Ollama (early stage — recommended)
-
-Use DeepSeek cloud API. Set in your production `.env`:
-
-```bash
-DEEPSEEK_API_KEY=your-key-here
-TASK_ROUTING={"translation":"deepseek","grammar_check":"deepseek","vocabulary":"deepseek","conversation":"deepseek","pronunciation_feedback":"deepseek"}
-```
-
-Deploy:
+The production override adds restart policies and a larger Whisper model:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
-### With self-hosted Ollama (when you're ready)
+**Hosted LLM (recommended early on).** Set `DEEPSEEK_API_KEY` and route all
+tasks to `deepseek`. A small VM (about 4 GB RAM) is enough for the API and audio
+services on CPU.
 
-1. Uncomment the `ollama` service block in `docker-compose.prod.yml`
-2. Uncomment the `volumes` block at the bottom of `docker-compose.prod.yml`
-3. Set in `.env`:
+**Self-hosted Ollama.** Uncomment the `ollama` service and the `ollama_data`
+volume in `docker-compose.prod.yml`, set `OLLAMA_BASE_URL=http://ollama:11434`,
+and allow at least 8 GB RAM for a 7B model. On first start
+[`scripts/ollama-entrypoint.sh`](scripts/ollama-entrypoint.sh) pulls
+`OLLAMA_MODEL` and keeps it in the volume.
 
-```bash
-OLLAMA_BASE_URL=http://ollama:11434
-OLLAMA_MODEL=deepseek-r1:14b       # or whichever model you want to self-host
-```
+> The production override currently declares `llm.depends_on: ollama` even
+> though the `ollama` service is commented out. Either enable the service or
+> remove that dependency before deploying with DeepSeek only.
 
-4. Deploy:
+Use a managed PostgreSQL instance in production and set `DATABASE_URL`
+accordingly.
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-```
+---
 
-On first start, the `scripts/ollama-entrypoint.sh` script will automatically pull the model. This takes several minutes for large models. The Python LLM service will wait (via Docker healthcheck) until Ollama is ready before it starts.
+## Project structure
 
-To pull the model manually instead:
-
-```bash
-docker compose exec ollama ollama pull deepseek-r1:14b
-```
-
-The model is stored in the `ollama_data` Docker volume and persists across container restarts — it only downloads once per server.
-
-### Prod Docker commands
-
-```bash
-# Start prod stack
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-
-# Stop prod stack
-docker compose -f docker-compose.yml -f docker-compose.prod.yml down
-
-# View prod logs
-docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f
-
-# Pull Ollama model manually (only needed if entrypoint script is not used)
-docker compose -f docker-compose.yml -f docker-compose.prod.yml exec ollama ollama pull deepseek-r1:14b
+```text
+languageapp-backend/
+├── apps/
+│   ├── api/                         NestJS gateway (public)
+│   │   ├── src/
+│   │   │   ├── main.ts              bootstrap, /api/v1 prefix, CORS
+│   │   │   ├── app.module.ts
+│   │   │   ├── app.controller.ts    health, llm/*, tts/* routes
+│   │   │   ├── app.service.ts       HTTP clients for llm and audio
+│   │   │   └── database/            Drizzle module and schema
+│   │   ├── drizzle/                 generated migrations
+│   │   └── drizzle.config.ts
+│   ├── llm/                         FastAPI LLM router (internal)
+│   │   └── app/
+│   │       ├── config.py            settings and provider registry
+│   │       ├── router.py            TaskType enum and routing
+│   │       ├── providers/           base, ollama, deepseek
+│   │       └── routes/              health, llm
+│   └── audio/                       FastAPI speech service (internal)
+│       └── app/
+│           ├── config.py            settings and language → engine routing
+│           ├── models/              whisper, kokoro, piper, elevenlabs loaders
+│           └── routes/              health, stt, tts
+├── scripts/ollama-entrypoint.sh
+├── docker-compose.yml               development stack
+├── docker-compose.prod.yml          production overrides
+└── .env.example
 ```
 
 ---
 
-## Environment variables reference
+## Extending the backend
 
-**NestJS API**
-
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `3000` | NestJS listen port |
-| `NODE_ENV` | `development` | `development` or `production` |
-| `LLM_SERVICE_URL` | `http://llm:8000` | URL NestJS uses to reach the LLM service. Use `http://localhost:8000` for native dev |
-| `AUDIO_SERVICE_URL` | `http://audio:8001` | URL NestJS uses to reach the audio service. Use `http://localhost:8001` for native dev |
-
-**LLM service**
-
-| Variable | Default | Description |
-|---|---|---|
-| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434` | Ollama server URL. Use `http://ollama:11434` when Ollama runs as a container |
-| `OLLAMA_MODEL` | `deepseek-r1:14b` | Any model available in your Ollama instance |
-| `DEEPSEEK_API_KEY` | _(empty)_ | DeepSeek cloud API key. Provider is disabled if empty |
-| `DEEPSEEK_MODEL` | `deepseek-chat` | DeepSeek model name |
-| `TASK_ROUTING` | all → `ollama` | JSON map of task name to provider name |
-
-**Audio service**
-
-| Variable | Default | Description |
-|---|---|---|
-| `WHISPER_MODEL_SIZE` | `small` | Faster-Whisper model size: `tiny`, `base`, `small`, `medium`, `large-v3`. Use `small` for dev, `medium`/`large-v3` for prod |
-| `WHISPER_DEVICE` | `cpu` | `cpu` or `cuda` (GPU) |
-| `WHISPER_COMPUTE_TYPE` | `int8` | `int8` is fastest on CPU. Use `float16` on GPU |
-| `KOKORO_DEFAULT_VOICE` | `af_heart` | Default TTS voice. See `GET /tts/voices` for all options |
-| `KOKORO_DEFAULT_LANG` | `a` | Default TTS language code: `a`=American English, `b`=British English, `e`=Spanish, `f`=French, `j`=Japanese, `z`=Mandarin |
+| To add… | Change |
+|---|---|
+| A database table | `apps/api/src/database/schema.ts`, then `yarn db:generate && yarn db:migrate` |
+| An LLM task | `TaskType` in `apps/llm/app/router.py`, and add it to `TASK_ROUTING` |
+| An LLM provider | New `LLMProvider` in `apps/llm/app/providers/`, registered in `build_router()` in `config.py` |
+| A Piper language | `VOICE_PATHS` and `PIPER_DEFAULT_VOICES` in `models/piper.py`, a `piper_voice_<lang>` setting and mapping in `config.py`, and an entry in `LANGUAGE_ROUTING` |
+| A Kokoro language | An entry in `LANGUAGE_ROUTING` in `apps/audio/app/config.py` |
+| A public endpoint | A route in `apps/api` that calls the internal service; never expose Python services directly |
 
 ---
 
-## LLM service API
+## Known limitations
 
-### `POST /llm/generate` — Full response
+These are tracked and expected at this stage:
 
-Waits for the complete response then returns it. Best for short tasks (grammar check, vocabulary lookup).
-
-**Request:**
-```json
-{
-  "task": "translation",
-  "prompt": "Translate hello to French",
-  "system": "You are a language tutor."
-}
-```
-
-**Response:**
-```json
-{
-  "result": "Bonjour",
-  "provider": "OllamaProvider"
-}
-```
-
-### `POST /llm/stream` — Token-by-token SSE stream
-
-Returns a `text/event-stream` response. Best for longer responses (conversation, explanations) where you want text to appear as it's generated.
-
-**Request:** same shape as `/llm/generate`
-
-**Stream events:**
-```
-data: {"token": "Bon"}
-data: {"token": "jour"}
-data: {"token": ","}
-data: {"token": " comment"}
-data: {"token": " allez-vous"}
-data: [DONE]
-```
-
-On error:
-```
-data: {"error": "something went wrong"}
-```
+- No authentication, input validation, quotas or rate limiting on any route.
+- The `users` table holds only an email; onboarding preferences and assessment
+  results are not persisted yet, and no migrations have been generated.
+- No public speech-to-text route on the gateway.
+- LLM requests are single-turn: no conversation memory or tutor policy yet.
+- TTS audio is fully buffered in Python and again in NestJS rather than streamed.
+- Kokoro falls back to the English `af_heart` voice when no voice is given, even
+  for French or Spanish; `speed` is ignored by Piper and ElevenLabs.
+- Model inference runs inside async request handlers, so concurrent requests
+  block each other.
+- Piper models are stored outside the `audio_model_cache` volume and are
+  re-downloaded when the container is recreated.
+- `apps/api` relies on `form-data` and `dotenv` being installed transitively;
+  they should be declared as direct dependencies.
 
 ---
 
-## Audio service API
+## Conventions
 
-### `POST /stt/transcribe` — Speech to text
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `file` | audio file | Yes | Any format supported by ffmpeg (wav, mp3, m4a, etc.) |
-| `language` | string | No | Force a language code (e.g. `en`, `fr`). Omit for auto-detect |
-| `word_timestamps` | bool | No | Return per-word start/end times for word highlighting. Default `false` |
-
-**Response:**
-```json
-{
-  "text": "Hello how are you",
-  "language": "en",
-  "language_probability": 0.99,
-  "duration": 2.5,
-  "words": [
-    { "word": "Hello", "start": 0.0,  "end": 0.42 },
-    { "word": "how",   "start": 0.44, "end": 0.68 },
-    { "word": "are",   "start": 0.70, "end": 0.91 },
-    { "word": "you",   "start": 0.93, "end": 1.20 }
-  ]
-}
-```
-
-`words` is only present when `word_timestamps=true`.
-
-### `POST /tts/synthesize` — Text to speech
-
-Returns a WAV audio stream.
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `text` | string | Yes | Text to synthesize |
-| `voice` | string | No | Voice ID. Overrides `KOKORO_DEFAULT_VOICE` |
-| `lang_code` | string | No | Language code. Overrides `KOKORO_DEFAULT_LANG` |
-| `speed` | float | No | Playback speed. Default `1.0`, range `0.5`–`2.0` |
-
-### `GET /tts/voices` — List available voices
-
-Returns all supported voices and language codes.
-
----
-
-## Renaming the project
-
-All occurrences of `languageapp` live in:
-
-- `apps/api/package.json` → `name` field
-- `apps/llm/app/main.py` → `title` field
-- `docker-compose.yml` → network name
-- `app.json` (mobile repo)
-
-A search-and-replace across both repos is all that's needed.
+- Package managers: Yarn for `apps/api`, pip for the Python services.
+- Configuration lives in environment variables, not code.
+- Never commit `.env` or downloaded model files.
