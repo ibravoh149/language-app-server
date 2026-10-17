@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     kokoro_default_voice: str = "af_heart"
     kokoro_default_lang: str = "a"
 
+    # ElevenLabs — cloud TTS (optional, off by default)
+    elevenlabs_api_key: str = ""
+    # Rachel — a neutral multilingual voice available on all ElevenLabs accounts
+    elevenlabs_default_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
+    # eleven_turbo_v2_5 is fast + cheap; switch to eleven_multilingual_v2 for higher quality
+    elevenlabs_model: str = "eleven_turbo_v2_5"
+
     # Piper — default voice per language (override via env var if needed)
     piper_voice_de: str = "de_DE-thorsten-medium"
     piper_voice_nl: str = "nl_NL-mls-medium"

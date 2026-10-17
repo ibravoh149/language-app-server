@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from app.config import get_settings, get_piper_voice_for_language, LANGUAGE_ROUTING
 from app.models.kokoro import get_kokoro_pipeline
 from app.models.piper import get_piper_voice, VOICE_PATHS
+from app.models.elevenlabs_client import get_elevenlabs_client
 
 router = APIRouter()
 
@@ -69,9 +70,10 @@ def _get_voices() -> list[dict]:
 class SynthesizeRequest(BaseModel):
     text: str
     language: str | None = None   # standard code: "en", "de", "fr" etc. — auto-routes to correct engine
-    voice: str | None = None      # optional: override the default voice for the language
+    voice: str | None = None      # optional: override the default voice / ElevenLabs voice_id
     lang_code: str | None = None  # Kokoro-specific (a/b/e/f...). Ignored if language is set
     speed: float = 1.0
+    engine: str | None = None     # None/"auto" = Kokoro/Piper (default). "elevenlabs" = cloud TTS.
 
 
 @router.post("/synthesize")
@@ -79,6 +81,13 @@ async def synthesize(body: SynthesizeRequest):
     s = get_settings()
 
     try:
+        # Explicit ElevenLabs override
+        if body.engine == "elevenlabs":
+            if not s.elevenlabs_api_key:
+                raise HTTPException(status_code=400, detail="ELEVENLABS_API_KEY is not configured")
+            voice_id = body.voice or s.elevenlabs_default_voice_id
+            return await _synthesize_elevenlabs(body.text, voice_id)
+
         # language field takes precedence — routes to the right engine automatically
         if body.language:
             lang = body.language.lower()
@@ -137,10 +146,36 @@ async def _synthesize_piper(text: str, voice_name: str) -> StreamingResponse:
     )
 
 
+async def _synthesize_elevenlabs(text: str, voice_id: str) -> StreamingResponse:
+    s = get_settings()
+    client = get_elevenlabs_client()
+
+    audio_chunks = client.text_to_speech.convert(
+        voice_id=voice_id,
+        text=text,
+        model_id=s.elevenlabs_model,
+        output_format="mp3_44100_128",
+    )
+    audio_bytes = b"".join(audio_chunks)
+
+    return StreamingResponse(
+        io.BytesIO(audio_bytes),
+        media_type="audio/mpeg",
+        headers={"Content-Disposition": "inline; filename=speech.mp3"},
+    )
+
+
 @router.get("/voices")
 def list_voices():
+    s = get_settings()
     return {
         "voices": _get_voices(),
         "supported_languages": list(LANGUAGE_ROUTING.keys()),
         "lang_codes": LANG_CODES,
+        "elevenlabs": {
+            "available": bool(s.elevenlabs_api_key),
+            "default_voice_id": s.elevenlabs_default_voice_id,
+            "model": s.elevenlabs_model,
+            "note": "Pass engine='elevenlabs' with any valid ElevenLabs voice_id to use cloud TTS",
+        },
     }

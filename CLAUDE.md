@@ -16,7 +16,7 @@ Backend monorepo for a language learning app. Three services, all containerised 
 - **Database.** PostgreSQL via Drizzle ORM. Schema in `apps/api/src/database/schema.ts`. Migrations in `apps/api/drizzle/`. Use `yarn db:generate` then `yarn db:migrate` to evolve the schema.
 - **LLM provider pattern.** Two providers: `ollama` (local/self-hosted) and `deepseek` (cloud). Selected per task via `TASK_ROUTING` env var. No code changes needed to switch providers.
 - **LLM streaming.** `POST /llm/generate` returns full JSON. `POST /llm/stream` returns SSE token stream. Use stream for conversation/long responses, generate for short tasks.
-- **TTS dual-engine.** Kokoro handles English, Spanish, French, Hindi, Italian, Japanese, Portuguese, Mandarin. Piper handles everything else (German, Dutch, Polish, Russian, Turkish, Arabic, and 14 more). Mobile sends `"language": "de"` and the backend routes automatically.
+- **TTS engines.** Kokoro handles English, Spanish, French, Hindi, Italian, Japanese, Portuguese, Mandarin. Piper handles everything else (German, Dutch, Polish, Russian, Turkish, Arabic, and 14 more). Mobile sends `"language": "de"` and the backend routes automatically. ElevenLabs is available as an optional cloud override — set `ELEVENLABS_API_KEY` and pass `engine="elevenlabs"` in the request.
 - **STT.** Faster-Whisper. Supports `word_timestamps=true` for per-word timing (used to highlight words as they're spoken).
 - **Local dev without Docker.** Run each service natively with hot reload. Ollama runs natively on the host machine — no container needed in dev.
 
@@ -108,8 +108,9 @@ Available task types (used in `POST /llm/generate` and `POST /llm/stream`):
 
 ## TTS languages
 
-- **Kokoro:** `en`, `en-us`, `en-gb`, `es`, `fr`, `hi`, `it`, `ja`, `pt`, `zh`
-- **Piper:** `de`, `nl`, `pl`, `ru`, `tr`, `ar`, `cs`, `sv`, `nb`, `da`, `fi`, `el`, `uk`, `ko`, `vi`, `hu`, `ro`, `sk`, `ca`, `sr`
+- **Kokoro (default):** `en`, `en-us`, `en-gb`, `es`, `fr`, `hi`, `it`, `ja`, `pt`, `zh`
+- **Piper (default):** `de`, `nl`, `pl`, `ru`, `tr`, `ar`, `cs`, `sv`, `nb`, `da`, `fi`, `el`, `uk`, `ko`, `vi`, `hu`, `ro`, `sk`, `ca`, `sr`
+- **ElevenLabs (cloud override):** all languages. Set `ELEVENLABS_API_KEY` and pass `engine="elevenlabs"`. Returns MP3 (`audio/mpeg`) instead of WAV.
 
 ## Extending the project
 
