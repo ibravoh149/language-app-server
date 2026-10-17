@@ -116,6 +116,15 @@ cd apps/api && yarn install && yarn db:push
 
 ### 3. Start the services (one terminal each)
 
+> The Python services need **Python 3.10+** (3.12 recommended). macOS ships
+> 3.9, so either `brew install python@3.12` and create the venvs with
+> `python3.12 -m venv .venv`, or run a Python service in Docker instead:
+> ```bash
+> docker build -t languageapp-llm apps/llm
+> docker run --rm -p 8000:8000 -e OLLAMA_BASE_URL=http://host.docker.internal:11434 \
+>   -e OLLAMA_MODEL=qwen2.5:7b languageapp-llm
+> ```
+
 ```bash
 # LLM service
 cd apps/llm
@@ -186,6 +195,13 @@ It creates a throwaway user and exercises signup, email verification (codes
 are read from the `[dev-email]` log lines), login, token refresh and reuse
 detection, profile updates, password reset and logout.
 
+Placement (needs `yarn db:seed` once; uses the LLM service when it's running,
+otherwise checks the self-rating fallback):
+
+```bash
+scripts/smoke-placement.sh http://localhost:3000/api/v1
+```
+
 ---
 
 ## Database
@@ -211,6 +227,10 @@ Changing the schema:
 2. `yarn db:generate` and review the generated SQL.
 3. `yarn db:migrate`.
 4. Commit the schema and the migration together.
+
+Reference data (the placement prompt bank in
+`apps/api/src/database/seed-data/`) is loaded with `yarn db:seed`. It's
+idempotent: it inserts what's missing and never duplicates or deletes.
 
 Inject the database anywhere in the API:
 
@@ -312,9 +332,16 @@ curl -X POST http://localhost:3000/api/v1/llm/generate \
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `task` | string | yes | `translation`, `grammar_check`, `vocabulary`, `conversation`, `pronunciation_feedback` |
+| `task` | string | yes | `translation`, `grammar_check`, `vocabulary`, `conversation`, `pronunciation_feedback`, `placement_scoring` |
 | `prompt` | string | yes | User message |
 | `system` | string | no | System instruction |
+
+The internal LLM service (`:8000/llm/generate`) also accepts `max_tokens`,
+`temperature` and `json_output` (ask for one JSON object), and returns
+`usage: { prompt_tokens, completion_tokens }`. Every call is logged with its
+token usage. Callers should always set `max_tokens` to keep spend low.
+Tasks missing from `TASK_ROUTING` fall back to `deepseek` when it's configured,
+otherwise to `ollama`.
 
 #### `POST /llm/stream`
 

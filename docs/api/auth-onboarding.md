@@ -1,6 +1,6 @@
 # API contract — F1: Auth + Onboarding
 
-Status: **v1, agreed** (2026-10-17). Owner: backend (lead).
+Status: **v1.1, agreed** (2026-10-17; v1.1 documents the placement level cap). Owner: backend (lead).
 Consumers: `languageapp-mobile` (`src/services/auth-api.ts`, `src/services/placement-api.ts`).
 
 Decisions behind it (TRACKER): D18 email + Apple + Google · D19 dev codes logged
@@ -155,6 +155,8 @@ Request
 ```
 Scoring rules:
 - One LLM call with bounded tokens (D10).
+- `suggestedLevel` is at most **one level above the prompt's level**: a B1
+  sentence can show B2, but not C1.
 - If the LLM fails or returns invalid output, the server returns
   `scored: false` with `suggestedLevel = selfRatedLevel` (or `A1`). That is
   **not an error**, so onboarding never blocks.
