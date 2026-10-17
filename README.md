@@ -71,6 +71,22 @@ The first start of the audio service downloads Whisper and Kokoro models
 
 ---
 
+## Running for the phone (quickest path)
+
+```bash
+scripts/dev-setup.sh          # once: .env, Postgres (Docker), migrations, seed
+scripts/dev-llm.sh            # terminal 1: LLM service in Docker → Ollama on this Mac
+cd apps/api && yarn start:dev # terminal 2: API on :3000
+```
+
+`dev-setup.sh` never overwrites an existing `.env`, picks a free Postgres port
+if 5432 is taken, and prints the `EXPO_PUBLIC_API_URL` (your Mac's LAN IP) to
+put in the mobile app's `.env`. Pull the dev model once with
+`ollama pull qwen2.5:7b`. Without it, placement scoring falls back to the
+self-rating.
+
+---
+
 ## Local development (native)
 
 Running each service natively gives hot reload and easier debugging. It is the
