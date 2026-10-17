@@ -195,6 +195,16 @@ It creates a throwaway user and exercises signup, email verification (codes
 are read from the `[dev-email]` log lines), login, token refresh and reuse
 detection, profile updates, password reset and logout.
 
+Apple / Google sign-in, with locally signed test tokens instead of real
+accounts (development only):
+
+```bash
+node apps/api/scripts/oauth-test-keys.js init /tmp/oauth-keys
+(cd /tmp/oauth-keys && python3 -m http.server 8765) &
+# start the API with OAUTH_TEST_JWKS_URL=http://localhost:8765/jwks.json GOOGLE_CLIENT_IDS=test-google-client
+scripts/smoke-oauth.sh http://localhost:3000/api/v1 /tmp/oauth-keys /tmp/api.log
+```
+
 Placement (needs `yarn db:seed` once; uses the LLM service when it's running,
 otherwise checks the self-rating fallback):
 
@@ -261,6 +271,7 @@ provider, Whisper size or TTS voice never requires a code change. See
 | `CODE_HMAC_SECRET` | random per process (dev) | **Required in production.** Hashes email codes |
 | `GOOGLE_CLIENT_IDS` | _(empty)_ | Google OAuth client IDs accepted for Google sign-in |
 | `APPLE_BUNDLE_ID` | `com.languageapp.sprachbar` | Audience for Sign in with Apple tokens |
+| `OAUTH_TEST_JWKS_URL` | _(unset)_ | Dev/test only: verify Apple/Google tokens against this JWKS instead of the providers'. Ignored in production |
 | `POSTGRES_PORT` | `5432` | Host port for the Compose database (change if 5432 is taken) |
 | `PORT` | `3000` | Listen port |
 | `NODE_ENV` | `development` | `development` or `production` |
@@ -310,6 +321,7 @@ These are the only endpoints clients should call.
 | `POST` | `/auth/signup`, `/auth/login`, `/auth/refresh`, `/auth/logout` | Email + password accounts and sessions |
 | `POST` | `/auth/email/verify`, `/auth/email/resend` | 6-digit email verification |
 | `POST` | `/auth/password/forgot`, `/auth/password/reset` | Password reset with a 6-digit code |
+| `POST` | `/auth/oauth/google`, `/auth/oauth/apple` | Sign in with Google / Apple (ID token verified server-side) |
 | `GET` / `PATCH` | `/me`, `/me/profile` | Current user and onboarding profile |
 
 Full request/response shapes and error codes for auth and onboarding:

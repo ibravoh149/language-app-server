@@ -1,6 +1,6 @@
 # API contract — F1: Auth + Onboarding
 
-Status: **v1.1, agreed** (2026-10-17; v1.1 documents the placement level cap). Owner: backend (lead).
+Status: **v1.2, agreed** (2026-10-17; v1.1 placement level cap, v1.2 account-linking details). Owner: backend (lead).
 Consumers: `languageapp-mobile` (`src/services/auth-api.ts`, `src/services/placement-api.ts`).
 
 Decisions behind it (TRACKER): D18 email + Apple + Google · D19 dev codes logged
@@ -237,8 +237,17 @@ The app signs in with the native SDK and sends the provider's **ID token**; the
 backend verifies it (signature, issuer, audience, expiry) and creates or links
 the account. Provider-verified emails count as verified.
 
-Account linking: if a user with the same verified email exists, the provider is
-added to that account. Otherwise a new account is created.
+Account linking:
+- A returning provider user is matched by the provider's subject ID, even when
+  the token has no email (Apple sends it only on the first sign-in).
+- Otherwise, if an account with the same email exists, the provider is added to
+  it. If that account's email was **never verified**, its password is removed and
+  its sessions revoked: the provider proved who owns the inbox, so a password set
+  by someone else must not keep working. Its `authProviders` then no longer
+  includes `password`.
+- Otherwise a new account is created.
+- A new account needs an email the provider marks as verified; if not,
+  `401 OAUTH_TOKEN_INVALID`.
 
 ### `POST /auth/oauth/google`
 ```json
