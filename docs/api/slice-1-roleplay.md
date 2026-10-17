@@ -1,6 +1,6 @@
 # API contract — Slice 1: roleplay conversation
 
-Status: **v1, agreed for slice 1** (2026-10-17). Owner: backend (lead).
+Status: **v1, PARKED** (2026-10-17): slice 1 resumes after F1 Auth + Onboarding (TRACKER D17). Identity will switch from the dev user to the F1 auth guard. Owner: backend (lead).
 Consumers: `languageapp-mobile` (`src/services/roleplay-api.ts`).
 
 Change rules: update this file in the same commit as the code change, bump the
