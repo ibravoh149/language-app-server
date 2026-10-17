@@ -25,7 +25,7 @@ services:
   postgres:
     image: postgres:16-alpine
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"   # set POSTGRES_PORT in .env if 5432 is taken
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-languageapp}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-languageapp}
