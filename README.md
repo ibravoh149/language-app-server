@@ -172,6 +172,22 @@ Only port `3000` (API) and `5432` (Postgres) are published to the host. The
 
 ---
 
+## Testing
+
+With the API running in development and its output written to a file, run the
+end-to-end auth check (needs `jq`):
+
+```bash
+cd apps/api && yarn build && node dist/main.js > /tmp/api.log 2>&1 &
+scripts/smoke-auth.sh http://localhost:3000/api/v1 /tmp/api.log
+```
+
+It creates a throwaway user and exercises signup, email verification (codes
+are read from the `[dev-email]` log lines), login, token refresh and reuse
+detection, profile updates, password reset and logout.
+
+---
+
 ## Database
 
 PostgreSQL accessed through [Drizzle ORM](https://orm.drizzle.team). The schema
@@ -221,6 +237,11 @@ provider, Whisper size or TTS voice never requires a code change. See
 
 | Variable | Default | Description |
 |---|---|---|
+| `JWT_ACCESS_SECRET` | random per process (dev) | **Required in production.** Signs access tokens |
+| `CODE_HMAC_SECRET` | random per process (dev) | **Required in production.** Hashes email codes |
+| `GOOGLE_CLIENT_IDS` | _(empty)_ | Google OAuth client IDs accepted for Google sign-in |
+| `APPLE_BUNDLE_ID` | `com.languageapp.sprachbar` | Audience for Sign in with Apple tokens |
+| `POSTGRES_PORT` | `5432` | Host port for the Compose database (change if 5432 is taken) |
 | `PORT` | `3000` | Listen port |
 | `NODE_ENV` | `development` | `development` or `production` |
 | `DATABASE_URL` | — (required) | PostgreSQL connection string |
