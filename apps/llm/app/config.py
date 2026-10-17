@@ -10,7 +10,7 @@ from .router import LLMRouter, TaskType
 class Settings(BaseSettings):
     # Ollama (local / self-hosted)
     ollama_base_url: str = "http://host.docker.internal:11434"
-    ollama_model: str = "deepseek-r1:14b"
+    ollama_model: str = "qwen2.5:7b"
 
     # DeepSeek cloud
     deepseek_api_key: str = ""

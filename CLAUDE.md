@@ -90,7 +90,7 @@ Set in `.env` for native dev:
 ```
 LLM_SERVICE_URL=http://localhost:8000
 AUDIO_SERVICE_URL=http://localhost:8001
-OLLAMA_MODEL=qwen2.5-coder:14b   # or whichever model you have in Ollama
+OLLAMA_MODEL=qwen2.5:7b   # German-capable chat model; never a coder model
 ```
 
 ### Docker dev

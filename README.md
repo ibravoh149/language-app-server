@@ -232,7 +232,7 @@ provider, Whisper size or TTS voice never requires a code change. See
 | Variable | Default | Description |
 |---|---|---|
 | `OLLAMA_BASE_URL` | `http://host.docker.internal:11434` | Ollama server URL |
-| `OLLAMA_MODEL` | `deepseek-r1:14b` | Any model available in that Ollama instance |
+| `OLLAMA_MODEL` | `qwen2.5:7b` | Dev only. A German-capable chat model (e.g. `qwen2.5:7b`, `gemma3:12b`); avoid coder and reasoning models |
 | `DEEPSEEK_API_KEY` | _(empty)_ | Enables the DeepSeek provider when set |
 | `DEEPSEEK_MODEL` | `deepseek-chat` | DeepSeek model name |
 | `TASK_ROUTING` | every task → `ollama` | JSON map of task → provider |
