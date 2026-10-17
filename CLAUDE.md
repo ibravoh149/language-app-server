@@ -1,6 +1,11 @@
+@AGENTS.md
+
 # languageapp-backend
 
 Backend monorepo for a language learning app. Three services, all containerised via Docker Compose.
+
+> **Workspace rules come first.** Read `/Users/ibrahimiliyasu/Projects/languageapp/AGENTS.md`
+> and `TRACKER.md` there before changing anything.
 
 ## Services
 
@@ -97,7 +102,8 @@ docker compose up --build
 ## Conventions
 
 - **Package manager:** yarn (NestJS), pip (Python)
-- **No auto-commits.** Always wait for explicit instruction before committing.
+- **Git:** work on a branch in a worktree and merge to `main` per the workspace `AGENTS.md`. Never edit or commit directly in the main checkout.
+- **API contracts** live in `docs/api/`. Change the contract doc in the same commit as the code, and tell the mobile agent.
 - **Python services** each have their own `.venv` — never share venvs across services.
 - **Env vars drive everything.** Switching LLM provider, TTS voice, Whisper model size — all via `.env`, no code changes.
 
