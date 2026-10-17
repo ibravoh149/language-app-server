@@ -38,12 +38,19 @@ export class AppService {
     return data;
   }
 
-  async synthesizeSpeech(payload: { text: string; voice?: string; lang_code?: string; speed?: number }) {
+  async synthesizeSpeech(payload: {
+    text: string;
+    language?: string;
+    voice?: string;
+    lang_code?: string;
+    speed?: number;
+    engine?: string;
+  }) {
     const audioUrl = this.config.get<string>('AUDIO_SERVICE_URL');
-    const { data } = await axios.post(`${audioUrl}/tts/synthesize`, payload, {
+    const { data, headers } = await axios.post(`${audioUrl}/tts/synthesize`, payload, {
       responseType: 'arraybuffer',
     });
-    return data;
+    return { data: Buffer.from(data), contentType: (headers['content-type'] as string) || 'audio/wav' };
   }
 
   async listVoices() {

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Res } from '@nestjs/common';
+import { Controller, Get, Post, Body, Res, HttpCode } from '@nestjs/common';
 import { Response } from 'express';
 import { AppService } from './app.service';
 
@@ -27,5 +27,18 @@ export class AppController {
     stream.pipe(res);
 
     res.on('close', () => stream.destroy());
+  }
+
+  @Post('tts/synthesize')
+  @HttpCode(200)
+  async synthesize(@Body() body: unknown, @Res() res: Response) {
+    const { data, contentType } = await this.appService.synthesizeSpeech(body as any);
+    res.setHeader('Content-Type', contentType);
+    res.send(data);
+  }
+
+  @Get('tts/voices')
+  async voices() {
+    return this.appService.listVoices();
   }
 }
