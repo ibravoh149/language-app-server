@@ -287,6 +287,13 @@ These are the only endpoints clients should call.
 | `POST` | `/llm/stream` | LLM response as a Server-Sent Events token stream |
 | `POST` | `/tts/synthesize` | Synthesised speech (WAV, or MP3 for ElevenLabs) |
 | `GET` | `/tts/voices` | Voice catalogue and supported languages |
+| `POST` | `/auth/signup`, `/auth/login`, `/auth/refresh`, `/auth/logout` | Email + password accounts and sessions |
+| `POST` | `/auth/email/verify`, `/auth/email/resend` | 6-digit email verification |
+| `POST` | `/auth/password/forgot`, `/auth/password/reset` | Password reset with a 6-digit code |
+| `GET` / `PATCH` | `/me`, `/me/profile` | Current user and onboarding profile |
+
+Full request/response shapes and error codes for auth and onboarding:
+[`docs/api/auth-onboarding.md`](docs/api/auth-onboarding.md).
 
 Speech-to-text is implemented in the audio service and wrapped by
 `AppService.transcribeAudio`, but no public gateway route exposes it yet.
