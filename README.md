@@ -297,6 +297,7 @@ provider, Whisper size or TTS voice never requires a code change. See
 | `OAUTH_TEST_JWKS_URL` | _(unset)_ | Dev/test only: verify Apple/Google tokens against this JWKS instead of the providers'. Ignored in production |
 | `POSTGRES_PORT` | `5432` | Host port for the Compose database (change if 5432 is taken) |
 | `PORT` | `3000` | Listen port |
+| `LOG_REQUESTS` | `true` | One log line per request: method, path, status, error code, duration, IP, user. Bodies and query strings are never logged |
 | `NODE_ENV` | `development` | `development` or `production` |
 | `DATABASE_URL` | — (required) | PostgreSQL connection string |
 | `LLM_SERVICE_URL` | `http://llm:8000` | Use `http://localhost:8000` natively |
