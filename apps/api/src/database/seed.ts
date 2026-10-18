@@ -7,8 +7,9 @@ import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from './schema';
-import { placementPrompts } from './schema';
+import { placementPrompts, scenarios } from './schema';
 import { PLACEMENT_PROMPTS } from './seed-data/placement-prompts';
+import { SCENARIOS } from './seed-data/scenarios';
 
 config({ path: ['.env', '../../.env'] });
 
@@ -46,12 +47,23 @@ async function seedPlacementPrompts(db: ReturnType<typeof drizzle<typeof schema>
   console.log(`placement_prompts: ${inserted} inserted, ${updated} reference translations added`);
 }
 
+/** Upserts by slug, so edits to the seed data update existing scenarios. */
+async function seedScenarios(db: ReturnType<typeof drizzle<typeof schema>>) {
+  for (const scenario of SCENARIOS) {
+    const { slug, ...content } = scenario;
+    await db.insert(scenarios).values(scenario).onConflictDoUpdate({ target: scenarios.slug, set: content });
+  }
+  console.log(`scenarios: ${SCENARIOS.length} upserted`);
+}
+
 async function main() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is not set');
   const client = postgres(url, { max: 1 });
   try {
-    await seedPlacementPrompts(drizzle(client, { schema }));
+    const db = drizzle(client, { schema });
+    await seedPlacementPrompts(db);
+    await seedScenarios(db);
   } finally {
     await client.end();
   }
