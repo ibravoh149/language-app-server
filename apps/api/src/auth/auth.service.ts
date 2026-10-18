@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError } from '../common/app-error';
 import { DB, DrizzleDB } from '../database/database.module';
-import { authIdentities, User, users } from '../database/schema';
+import { authIdentities, placementAttempts, User, users } from '../database/schema';
 import { ProfileDto, UserDto, UsersService } from '../users/users.service';
 import { LoginSchema, ResetPasswordSchema, SignupSchema } from './auth.schemas';
 import { CodesService } from './codes.service';
@@ -102,6 +102,34 @@ export class AuthService {
       .where(eq(users.id, user.id));
     await this.tokens.revokeAll(user.id);
     return this.result(user.id, false, userAgent);
+  }
+
+  /** Emails a 6-digit code that confirms account deletion (needed for accounts without a password). */
+  async requestDeletionCode(userId: string): Promise<{ resendAvailableAt: string }> {
+    const user = await this.users.requireUser(userId);
+    await this.codes.assertCanResend(userId, 'delete_account');
+    await this.codes.issue(userId, user.email, 'delete_account');
+    return { resendAvailableAt: new Date(Date.now() + 60_000).toISOString() };
+  }
+
+  /**
+   * Permanently deletes the account after re-authentication (password or emailed code).
+   * Removes the user and everything that cascades from it (profile, identities, sessions,
+   * codes) plus their placement attempts, whose transcripts are personal data.
+   */
+  async deleteAccount(userId: string, proof: { password?: string; code?: string }): Promise<void> {
+    const user = await this.users.requireUser(userId);
+    if (proof.password) {
+      if (!user.passwordHash || !(await argon2.verify(user.passwordHash, proof.password))) {
+        throw new AppError('INVALID_CREDENTIALS', 'That password is not correct.');
+      }
+    } else {
+      await this.codes.consume(userId, 'delete_account', proof.code!);
+    }
+    await this.db.transaction(async (tx) => {
+      await tx.delete(placementAttempts).where(eq(placementAttempts.userId, userId));
+      await tx.delete(users).where(eq(users.id, userId));
+    });
   }
 
   /** Builds the contract's AuthResult and opens a new session. */

@@ -42,6 +42,11 @@ export const ForgotPasswordSchema = z.object({ email });
 export const ResetPasswordSchema = z.object({ email, code, newPassword: password });
 export const RefreshSchema = z.object({ refreshToken: z.string().min(1).max(200) });
 
+/** Deleting the account needs re-authentication: the password, or a code emailed via POST /me/delete/code. */
+export const DeleteAccountSchema = z
+  .object({ password: z.string().min(1).max(128).optional(), code: code.optional() })
+  .refine((v) => !!v.password || !!v.code, { message: 'Enter your password or the code we emailed you.', path: ['password'] });
+
 export const ProfilePatchSchema = ProfileSchema.partial().extend({ assessmentId: uuid.optional() });
 
 export const GoogleSchema = z.object({

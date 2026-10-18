@@ -19,7 +19,7 @@ const timestamps = {
 
 export const cefrLevel = pgEnum('cefr_level', ['A1', 'A2', 'B1', 'B2', 'C1']);
 export const authProvider = pgEnum('auth_provider', ['apple', 'google']);
-export const emailCodePurpose = pgEnum('email_code_purpose', ['verify_email', 'reset_password']);
+export const emailCodePurpose = pgEnum('email_code_purpose', ['verify_email', 'reset_password', 'delete_account']);
 
 // ── Identity ──────────────────────────────────────────────────────────────
 

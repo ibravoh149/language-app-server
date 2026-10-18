@@ -15,6 +15,13 @@
       "when": 1792291215885,
       "tag": "0001_placement_reference_text",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792327980809,
+      "tag": "0002_delete_account_code",
+      "breakpoints": true
     }
   ]
 }
