@@ -18,13 +18,27 @@ const LANGUAGE_NAMES: Record<string, string> = {
  * What the model must return: observations about the answer, not a level. The level is
  * decided in code (levelFromRubric) so a small model can't drift or echo the self-rating.
  */
-const ScoreSchema = z.object({
+/**
+ * Display labels are best effort: models return "", a comma-separated string, null or
+ * over-long items. Normalise instead of rejecting, so a cosmetic slip never throws away
+ * a valid judgement. Only `meaning` and `majorErrors` (which decide the level) are strict.
+ */
+const labels = z.preprocess((v) => {
+  const items = Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : [];
+  return items
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim().slice(0, 40))
+    .filter(Boolean)
+    .slice(0, 3);
+}, z.array(z.string()));
+
+export const ScoreSchema = z.object({
   meaning: z.preprocess((v) => (typeof v === 'string' ? v.trim().toLowerCase() : v), z.enum(['full', 'partial', 'none'])),
   majorErrors: z.coerce.number().int().min(0).max(20),
-  minorErrors: z.coerce.number().int().min(0).max(20).default(0),
-  reason: z.string().min(1).max(400),
-  strengths: z.array(z.string().max(40)).max(3).default([]),
-  focusAreas: z.array(z.string().max(40)).max(3).default([]),
+  minorErrors: z.preprocess((v) => v ?? 0, z.coerce.number().int().min(0).max(20)).catch(0),
+  reason: z.preprocess((v) => (typeof v === 'string' ? v.trim().slice(0, 400) : ''), z.string()),
+  strengths: labels,
+  focusAreas: labels,
 });
 
 /**
@@ -164,7 +178,7 @@ export class PlacementService {
     return {
       suggestedLevel: levelFromRubric(promptLevel, score.meaning, score.majorErrors),
       scored: true,
-      reason: score.reason,
+      reason: score.reason || null,
       strengths: score.strengths,
       focusAreas: score.focusAreas,
       promptTokens: res.promptTokens,
@@ -173,12 +187,26 @@ export class PlacementService {
   }
 }
 
-/** Parses the outermost JSON object in model output, or returns null. */
-function safeJson(text: string): unknown {
+/**
+ * Parses the outermost JSON object in model output. If the JSON is broken (small models
+ * sometimes derail mid-object), salvages the fields by pattern so a judgement that was
+ * already complete isn't lost. Returns null when nothing usable is found.
+ */
+export function safeJson(text: string): unknown {
   try {
     return JSON.parse(extractJson(text));
   } catch {
-    return null;
+    const meaning = /"meaning"\s*:\s*"(full|partial|none)"/i.exec(text)?.[1];
+    const majorErrors = /"majorErrors"\s*:\s*(\d+)/.exec(text)?.[1];
+    if (!meaning || majorErrors === undefined) return null;
+    return {
+      meaning,
+      majorErrors,
+      minorErrors: /"minorErrors"\s*:\s*(\d+)/.exec(text)?.[1],
+      reason: /"reason"\s*:\s*"([^"]*)"/.exec(text)?.[1],
+      strengths: /"strengths"\s*:\s*\[([^\]]*)\]/.exec(text)?.[1]?.replace(/"/g, ''),
+      focusAreas: /"focusAreas"\s*:\s*\[([^\]]*)\]/.exec(text)?.[1]?.replace(/"/g, ''),
+    };
   }
 }
 
