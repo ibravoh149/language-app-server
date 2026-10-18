@@ -1,9 +1,10 @@
 # AGENTS.md — languageapp-backend
 
 This repo is part of the Sprachbar workspace. **The workspace rules in
-`/Users/ibrahimiliyasu/Projects/languageapp/AGENTS.md` are binding**: worktrees,
-branch names, merge lock, fast-forward merge to `main`, quality gates, and the
-TRACKER work board. Read that file and `TRACKER.md` first.
+`/Users/ibrahimiliyasu/Projects/languageapp/AGENTS.md` are binding**: this repo is
+owned by the lead, who works directly on `main` (D23); other agents read it but
+don't edit it. Quality gates and the TRACKER work board apply. Read that file and
+`TRACKER.md` first.
 
 ## Repo specifics
 
@@ -18,7 +19,7 @@ TRACKER work board. Read that file and `TRACKER.md` first.
   One LLM call per learner turn.
 - Never commit `.env`, keys, or model files.
 
-## Quality gates (run in your worktree before merging)
+## Quality gates (run before every push)
 
 ```bash
 cd apps/api && yarn install && yarn build

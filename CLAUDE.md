@@ -102,7 +102,7 @@ docker compose up --build
 ## Conventions
 
 - **Package manager:** yarn (NestJS), pip (Python)
-- **Git:** work on a branch in a worktree and merge to `main` per the workspace `AGENTS.md`. Never edit or commit directly in the main checkout.
+- **Git:** the lead works directly on `main` in this checkout (workspace `AGENTS.md` §3, D23): small commits, quality gate before every push, `git pull --rebase` then push. The user's `yarn start:dev` hot-reloads every save, so keep each save compiling.
 - **API contracts** live in `docs/api/`. Change the contract doc in the same commit as the code, and tell the mobile agent.
 - **Python services** each have their own `.venv` — never share venvs across services.
 - **Env vars drive everything.** Switching LLM provider, TTS voice, Whisper model size — all via `.env`, no code changes.
