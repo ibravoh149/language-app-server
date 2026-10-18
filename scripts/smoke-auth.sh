@@ -134,4 +134,35 @@ expect 204 "" "logout"
 req POST /auth/refresh "{\"refreshToken\":\"$REFRESH\"}"
 expect 401 REFRESH_INVALID "refresh after logout"
 
+# Account deletion (password path)
+req POST /auth/login "{\"email\":\"$EMAIL\",\"password\":\"$NEWPASS\"}"
+ACCESS=$(jq -r '.tokens.accessToken' <<<"$BODY"); REFRESH=$(jq -r '.tokens.refreshToken' <<<"$BODY")
+req DELETE /me '{}' "$ACCESS"
+expect 400 VALIDATION_FAILED "delete without password or code rejected"
+req DELETE /me '{"password":"not-my-password"}' "$ACCESS"
+expect 401 INVALID_CREDENTIALS "delete with wrong password rejected"
+req DELETE /me "{\"password\":\"$NEWPASS\"}" "$ACCESS"
+expect 204 "" "account deleted with password"
+req GET /me "" "$ACCESS"
+expect 401 UNAUTHORIZED "deleted account's access token no longer works"
+req POST /auth/refresh "{\"refreshToken\":\"$REFRESH\"}"
+expect 401 REFRESH_INVALID "deleted account's sessions are gone"
+req POST /auth/login "{\"email\":\"$EMAIL\",\"password\":\"$NEWPASS\"}"
+expect 401 INVALID_CREDENTIALS "deleted account can't log in"
+
+# Account deletion (emailed code path)
+EMAIL="smoke-del+$(date +%s)$RANDOM@example.com"
+req POST /auth/signup "{\"name\":\"Del\",\"email\":\"$EMAIL\",\"password\":\"$PASS\"}"
+ACCESS=$(jq -r '.tokens.accessToken' <<<"$BODY")
+req POST /me/delete/code "" "$ACCESS"
+expect 202 "" "deletion code requested"
+DCODE=$(code_for delete-account)
+req DELETE /me '{"code":"000000"}' "$ACCESS"
+[[ $STATUS == 400 ]] || fail "wrong deletion code" "$STATUS $BODY"
+ok "wrong deletion code rejected"
+req DELETE /me "{\"code\":\"$DCODE\"}" "$ACCESS"
+expect 204 "" "account deleted with emailed code"
+req POST /auth/signup "{\"name\":\"Again\",\"email\":\"$EMAIL\",\"password\":\"$PASS\"}"
+expect 201 "" "email is free to sign up again after deletion"
+
 echo "All $pass checks passed."

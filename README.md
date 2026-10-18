@@ -346,6 +346,7 @@ These are the only endpoints clients should call.
 | `POST` | `/auth/password/forgot`, `/auth/password/reset` | Password reset with a 6-digit code |
 | `POST` | `/auth/oauth/google`, `/auth/oauth/apple` | Sign in with Google / Apple (ID token verified server-side) |
 | `GET` / `PATCH` | `/me`, `/me/profile` | Current user and onboarding profile |
+| `POST` / `DELETE` | `/me/delete/code`, `/me` | Delete the account (password or emailed code) |
 
 Full request/response shapes and error codes for auth and onboarding:
 [`docs/api/auth-onboarding.md`](docs/api/auth-onboarding.md).

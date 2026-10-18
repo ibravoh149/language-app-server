@@ -1,6 +1,6 @@
 # API contract — F1: Auth + Onboarding
 
-Status: **v1.3, agreed** (2026-10-18; v1.1 level cap, v1.2 account linking, v1.3 placement rubric). Owner: backend (lead).
+Status: **v1.4, agreed** (2026-10-18; v1.1 level cap, v1.2 account linking, v1.3 placement rubric, v1.4 account deletion). Owner: backend (lead).
 Consumers: `languageapp-mobile` (`src/services/auth-api.ts`, `src/services/placement-api.ts`).
 
 Decisions behind it (TRACKER): D18 email + Apple + Google · D19 dev codes logged
@@ -313,10 +313,36 @@ Request `{ "chosenLevel": "B2", "voiceSpeed": 1.25 }`
 
 ---
 
+### 🔒 `POST /me/delete/code`
+Emails a 6-digit code that confirms account deletion (logged to the console in
+development). Same cooldown as verification resend.
+
+**202** `{ "resendAvailableAt": "…" }` · **429** `RATE_LIMITED`
+
+### 🔒 `DELETE /me`
+Permanently deletes the account. Re-authentication is required in the JSON body:
+
+```json
+{ "password": "…" }      // accounts with a password
+{ "code": "123456" }     // any account; required when authProviders has no "password"
+```
+
+Deletes the user, profile, Apple/Google links, sessions and codes, **and the user's
+placement attempts** (their transcripts are personal data). All tokens stop
+working immediately. The email can be used to sign up again.
+
+**204** · **400** `VALIDATION_FAILED` (neither given) / `CODE_INVALID` / `CODE_EXPIRED`
+· **401** `INVALID_CREDENTIALS` (wrong password) · **429** `RATE_LIMITED`
+
+Client: `api.delete('/me', { data: { password } })`, then clear local state and go
+to welcome. Required by the App Store for apps that offer signup.
+
+---
+
 ## Development notes
 
 - Codes appear in the backend console like
   `[dev-email] verify code for alex@example.com: 123456`.
 - Rate limits are relaxed when `NODE_ENV=development`, but still enforced.
-- Not in F1: account deletion and data export (BACKLOG B-AUTH-2), real email
-  delivery (B-PLAT-9), Apple on Android (B-AUTH-1).
+- Not in F1: data export (BACKLOG B-AUTH-2), real email delivery (B-PLAT-9),
+  Apple on Android (B-AUTH-1).
