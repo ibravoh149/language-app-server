@@ -14,9 +14,21 @@ const LANGUAGE_NAMES: Record<string, string> = {
   en: 'English', de: 'German', fr: 'French', es: 'Spanish', tr: 'Turkish', ar: 'Arabic',
 };
 
+/**
+ * Reads a CEFR level from model output, tolerating small deviations ("b1", "B1+",
+ * or a hedge like "A1|A2"). When several levels appear, the lowest wins: when unsure,
+ * it's better to start a learner too easy than too hard. Returns null if none is found.
+ */
+export function normalizeLevel(raw: unknown): Level | null {
+  if (typeof raw !== 'string') return null;
+  const found = (raw.toUpperCase().match(/[ABC][12]/g) ?? []).filter((l) => (CEFR as readonly string[]).includes(l)) as Level[];
+  if (!found.length) return null;
+  return found.reduce((lowest, l) => (CEFR.indexOf(l) < CEFR.indexOf(lowest) ? l : lowest));
+}
+
 /** What the model must return. Anything else counts as a scoring failure. */
 const ScoreSchema = z.object({
-  level: z.enum(CEFR),
+  level: z.preprocess((v) => normalizeLevel(v) ?? v, z.enum(CEFR)),
   reason: z.string().min(1).max(400),
   strengths: z.array(z.string().max(40)).max(3).default([]),
   focusAreas: z.array(z.string().max(40)).max(3).default([]),
@@ -120,8 +132,9 @@ export class PlacementService {
       'Judge meaning, grammar, vocabulary and word order. Do not judge pronunciation.',
       `Write "reason", "strengths" and "focusAreas" in ${learnerLanguage}. Keep "reason" to one or two short sentences;`,
       'strengths and focusAreas are at most 3 labels of 1-3 words each.',
-      'Respond with only this JSON object:',
-      '{"level":"A1|A2|B1|B2|C1","reason":"...","strengths":["..."],"focusAreas":["..."]}',
+      '"level" must be exactly ONE of: A1, A2, B1, B2, C1. Pick the single best fit.',
+      'Respond with only a JSON object in this shape (example values):',
+      '{"level":"B1","reason":"Clear meaning; the verb should come second.","strengths":["vocabulary"],"focusAreas":["word order"]}',
     ].join('\n');
     const prompt = [
       `Sentence shown (${learnerLanguage}, CEFR ${promptLevel}): ${promptText}`,
