@@ -14,26 +14,36 @@ config({ path: ['.env', '../../.env'] });
 
 async function seedPlacementPrompts(db: ReturnType<typeof drizzle<typeof schema>>) {
   let inserted = 0;
+  let updated = 0;
   for (const [spokenLanguage, levels] of Object.entries(PLACEMENT_PROMPTS)) {
     for (const [level, texts] of Object.entries(levels)) {
-      for (const text of texts) {
-        const exists = await db
-          .select({ id: placementPrompts.id })
+      for (const [index, text] of texts.entries()) {
+        // The German list is the reference translation, in the same order.
+        const referenceText = PLACEMENT_PROMPTS.de[level as keyof typeof PLACEMENT_PROMPTS.de][index] ?? null;
+        const [existing] = await db
+          .select({ id: placementPrompts.id, referenceText: placementPrompts.referenceText })
           .from(placementPrompts)
           .where(and(eq(placementPrompts.spokenLanguage, spokenLanguage), eq(placementPrompts.text, text)))
           .limit(1);
-        if (exists.length) continue;
+        if (existing) {
+          if (!existing.referenceText && referenceText) {
+            await db.update(placementPrompts).set({ referenceText }).where(eq(placementPrompts.id, existing.id));
+            updated++;
+          }
+          continue;
+        }
         await db.insert(placementPrompts).values({
           spokenLanguage,
           targetLanguage: 'de',
           level: level as (typeof schema.cefrLevel.enumValues)[number],
           text,
+          referenceText,
         });
         inserted++;
       }
     }
   }
-  console.log(`placement_prompts: ${inserted} inserted`);
+  console.log(`placement_prompts: ${inserted} inserted, ${updated} reference translations added`);
 }
 
 async function main() {

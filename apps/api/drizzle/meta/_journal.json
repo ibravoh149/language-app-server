@@ -8,6 +8,13 @@
       "when": 1792249043019,
       "tag": "0000_f1_auth_onboarding",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792291215885,
+      "tag": "0001_placement_reference_text",
+      "breakpoints": true
     }
   ]
 }

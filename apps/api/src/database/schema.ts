@@ -101,6 +101,8 @@ export const placementPrompts = pgTable(
     targetLanguage: varchar('target_language', { length: 5 }).notNull(),
     level: cefrLevel('level').notNull(),
     text: text('text').notNull(),
+    /** A correct German translation the scorer compares against (other correct wordings are fine). */
+    referenceText: text('reference_text'),
     active: boolean('active').default(true).notNull(),
     ...timestamps,
   },

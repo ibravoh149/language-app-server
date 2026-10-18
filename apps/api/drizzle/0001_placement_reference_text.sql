@@ -1,0 +1,1 @@
+ALTER TABLE "placement_prompts" ADD COLUMN "reference_text" text;
