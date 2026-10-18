@@ -221,6 +221,13 @@ node apps/api/scripts/oauth-test-keys.js init /tmp/oauth-keys
 scripts/smoke-oauth.sh http://localhost:3000/api/v1 /tmp/oauth-keys /tmp/api.log
 ```
 
+Placement scoring quality, with fixed transcripts and expected levels (rerun it
+when switching models, e.g. Ollama → DeepSeek):
+
+```bash
+scripts/eval-placement.sh http://localhost:3000/api/v1
+```
+
 Placement (needs `yarn db:seed` once; uses the LLM service when it's running,
 otherwise checks the self-rating fallback):
 

@@ -1,6 +1,6 @@
 # API contract — F1: Auth + Onboarding
 
-Status: **v1.2, agreed** (2026-10-17; v1.1 placement level cap, v1.2 account-linking details). Owner: backend (lead).
+Status: **v1.3, agreed** (2026-10-18; v1.1 level cap, v1.2 account linking, v1.3 placement rubric). Owner: backend (lead).
 Consumers: `languageapp-mobile` (`src/services/auth-api.ts`, `src/services/placement-api.ts`).
 
 Decisions behind it (TRACKER): D18 email + Apple + Google · D19 dev codes logged
@@ -155,8 +155,12 @@ Request
 ```
 Scoring rules:
 - One LLM call with bounded tokens (D10).
-- `suggestedLevel` is at most **one level above the prompt's level**: a B1
-  sentence can show B2, but not C1.
+- The model reports observations, not a level: whether the meaning came across
+  (`full` / `partial` / `none`) and how many major and minor errors there are. The
+  server then applies the rubric: `none` → **A1**; `full` with no major errors →
+  the **prompt's level**; anything else → **one level below** the prompt's level.
+  `suggestedLevel` is therefore never above the prompt's level. The self-rating is
+  not sent to the model.
 - If the LLM fails or returns invalid output, the server returns
   `scored: false` with `suggestedLevel = selfRatedLevel` (or `A1`). That is
   **not an error**, so onboarding never blocks.
