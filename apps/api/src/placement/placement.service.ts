@@ -15,24 +15,28 @@ const LANGUAGE_NAMES: Record<string, string> = {
 };
 
 /**
- * Reads a CEFR level from model output, tolerating small deviations ("b1", "B1+",
- * or a hedge like "A1|A2"). When several levels appear, the lowest wins: when unsure,
- * it's better to start a learner too easy than too hard. Returns null if none is found.
+ * What the model must return: observations about the answer, not a level. The level is
+ * decided in code (levelFromRubric) so a small model can't drift or echo the self-rating.
  */
-export function normalizeLevel(raw: unknown): Level | null {
-  if (typeof raw !== 'string') return null;
-  const found = (raw.toUpperCase().match(/[ABC][12]/g) ?? []).filter((l) => (CEFR as readonly string[]).includes(l)) as Level[];
-  if (!found.length) return null;
-  return found.reduce((lowest, l) => (CEFR.indexOf(l) < CEFR.indexOf(lowest) ? l : lowest));
-}
-
-/** What the model must return. Anything else counts as a scoring failure. */
 const ScoreSchema = z.object({
-  level: z.preprocess((v) => normalizeLevel(v) ?? v, z.enum(CEFR)),
+  meaning: z.preprocess((v) => (typeof v === 'string' ? v.trim().toLowerCase() : v), z.enum(['full', 'partial', 'none'])),
+  majorErrors: z.coerce.number().int().min(0).max(20),
+  minorErrors: z.coerce.number().int().min(0).max(20).default(0),
   reason: z.string().min(1).max(400),
   strengths: z.array(z.string().max(40)).max(3).default([]),
   focusAreas: z.array(z.string().max(40)).max(3).default([]),
 });
+
+/**
+ * The placement rubric. A prompt tests its own level, so the learner "passes" it (gets that
+ * level) only when the meaning came across fully with no major errors; otherwise they start
+ * one level lower, or at A1 when the meaning didn't come across.
+ */
+export function levelFromRubric(promptLevel: Level, meaning: 'full' | 'partial' | 'none', majorErrors: number): Level {
+  if (meaning === 'none') return 'A1';
+  if (meaning === 'full' && majorErrors === 0) return promptLevel;
+  return CEFR[Math.max(0, CEFR.indexOf(promptLevel) - 1)];
+}
 
 export interface PlacementResultDto {
   assessmentId: string;
@@ -106,7 +110,7 @@ export class PlacementService {
     if (!skipped) {
       const [prompt] = await this.db.select().from(placementPrompts).where(eq(placementPrompts.id, attempt.promptId));
       try {
-        const score = await this.score(prompt.text, prompt.level, transcript, attempt);
+        const score = await this.score(prompt.text, prompt.referenceText, prompt.level, transcript, attempt);
         update = { ...update, ...score };
       } catch (error) {
         const detail = [(error as { code?: string })?.code, error instanceof Error ? error.message : String(error)].filter(Boolean).join(' ');
@@ -122,43 +126,60 @@ export class PlacementService {
     return toResult(saved);
   }
 
-  /** One bounded LLM call. The prompt only tests up to its own level, so the result is capped one level above it. */
-  private async score(promptText: string, promptLevel: Level, transcript: string, attempt: PlacementAttempt) {
+  /** One bounded LLM call that reports observations; the level comes from levelFromRubric. The self-rating is not sent, so it can't anchor the model. */
+  private async score(promptText: string, referenceText: string | null, promptLevel: Level, transcript: string, attempt: PlacementAttempt) {
     const learnerLanguage = LANGUAGE_NAMES[attempt.spokenLanguage] ?? 'English';
     const system = [
-      'You are a strict, fair CEFR examiner for German as a foreign language.',
+      'You are a strict, fair examiner for German as a foreign language.',
       `The learner was shown a sentence in ${learnerLanguage} and said its German translation aloud.`,
-      'The German text is an automatic speech transcript: ignore punctuation, capitalisation and small transcription noise.',
-      'Judge meaning, grammar, vocabulary and word order. Do not judge pronunciation.',
-      `Write "reason", "strengths" and "focusAreas" in ${learnerLanguage}. Keep "reason" to one or two short sentences;`,
-      'strengths and focusAreas are at most 3 labels of 1-3 words each.',
-      '"level" must be exactly ONE of: A1, A2, B1, B2, C1. Pick the single best fit.',
+      'The German text is an automatic speech transcript. Ignore punctuation and capitalisation.',
+      'Words that are not real German, or that make no sense in context, count as not said.',
+      'Compare the transcript with the reference translation (other correct wordings are equally fine) and report:',
+      '- "meaning": "full" if everything in the sentence came across, "partial" if only some of it did, "none" if it did not.',
+      '- "majorErrors": errors that change or block the meaning: a missing, wrong or misplaced verb (German puts the verb second),',
+      '  a wrong or missing key word, or a garbled phrase.',
+      '- "minorErrors": slips that do not block the meaning: articles, endings, gender, case.',
+      'Do not judge pronunciation. Be strict: do not give credit for parts that are missing.',
+      `Write "reason", "strengths" and "focusAreas" in ${learnerLanguage}. "reason" is one or two short sentences naming the`,
+      'most important mistake, or saying the answer was correct. strengths and focusAreas: at most 3 labels of 1-3 words each.',
       'Respond with only a JSON object in this shape (example values):',
-      '{"level":"B1","reason":"Clear meaning; the verb should come second.","strengths":["vocabulary"],"focusAreas":["word order"]}',
+      '{"meaning":"partial","majorErrors":2,"minorErrors":1,"reason":"The drink order is unclear and the verb is missing.","strengths":["polite request"],"focusAreas":["verbs","vocabulary"]}',
     ].join('\n');
     const prompt = [
-      `Sentence shown (${learnerLanguage}, CEFR ${promptLevel}): ${promptText}`,
-      `Learner's self-rating: ${attempt.selfRatedLevel ?? 'none'}`,
+      `Sentence shown (${learnerLanguage}): ${promptText}`,
+      ...(referenceText ? [`Reference translation: ${referenceText}`] : []),
       `Learner's German (transcript): ${transcript}`,
     ].join('\n');
 
-    const res = await this.llm.generate({ task: 'placement_scoring', system, prompt, maxTokens: 220, temperature: 0, json: true });
-    const parsed = ScoreSchema.parse(JSON.parse(extractJson(res.text)));
+    // Small models occasionally return malformed output; one retry is cheap and bounded.
+    let res = await this.llm.generate({ task: 'placement_scoring', system, prompt, maxTokens: 220, temperature: 0, json: true });
+    let parsed = ScoreSchema.safeParse(safeJson(res.text));
+    if (!parsed.success) {
+      this.logger.warn(`invalid scorer output for ${attempt.id}, retrying once`);
+      res = await this.llm.generate({ task: 'placement_scoring', system, prompt, maxTokens: 220, temperature: 0.2, json: true });
+      parsed = ScoreSchema.safeParse(safeJson(res.text));
+    }
+    if (!parsed.success) throw new Error(`invalid scorer output: ${res.text.slice(0, 200)}`);
+    const score = parsed.data;
     return {
-      suggestedLevel: capLevel(parsed.level, promptLevel),
+      suggestedLevel: levelFromRubric(promptLevel, score.meaning, score.majorErrors),
       scored: true,
-      reason: parsed.reason,
-      strengths: parsed.strengths,
-      focusAreas: parsed.focusAreas,
+      reason: score.reason,
+      strengths: score.strengths,
+      focusAreas: score.focusAreas,
       promptTokens: res.promptTokens,
       completionTokens: res.completionTokens,
     };
   }
 }
 
-function capLevel(level: Level, promptLevel: Level): Level {
-  const max = Math.min(CEFR.indexOf(promptLevel) + 1, CEFR.length - 1);
-  return CEFR[Math.min(CEFR.indexOf(level), max)];
+/** Parses the outermost JSON object in model output, or returns null. */
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(extractJson(text));
+  } catch {
+    return null;
+  }
 }
 
 /** Models sometimes wrap JSON in prose or code fences; take the outermost object. */
