@@ -92,14 +92,14 @@ export class TutorService {
       '     meaningless or unrelated (then your reply politely asks them to say it again).',
       `   - "corrections": up to 3 real mistakes that matter at ${scenario.level}, most important first. For each: "original" (their`,
       '     wrong words), "corrected" (correct German), "ruleKey" (short English kebab-case id, e.g. "verb-second"),',
-      `     "ruleName" (short label in ${learnerLanguage}) and "explanation" (1-2 sentences in ${learnerLanguage}: why).`,
+      `     "ruleName" (short label in ${learnerLanguage}) and "explanation" (ONE short sentence in ${learnerLanguage}: why).`,
       '   - Their message is a speech transcript: ignore punctuation and capitalisation. Only correct real errors: never',
       '     "correct" German that is already right, and never swap a correct wording for another correct one (e.g. "habe',
       '     gehabt" vs "hatte" are both fine). If there are no mistakes, use an empty list.',
       'Respond with only one JSON object, for example:',
       '{"reply":"Das tut mir leid. Seit wann haben Sie Fieber?","understood":true,"corrections":[{"original":"Ich habe gegeht",' +
         '"corrected":"Ich bin gegangen","ruleKey":"perfekt-sein-movement","ruleName":"Perfekt with sein",' +
-        '"explanation":"Verbs of movement form the Perfekt with sein, and the participle of gehen is gegangen."}]}',
+        '"explanation":"Movement verbs take sein in the Perfekt; gehen becomes gegangen."}]}',
     ].join('\n');
 
     const recent = history.slice(-HISTORY_WINDOW);
