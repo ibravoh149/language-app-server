@@ -9,6 +9,7 @@ class TaskType(str, Enum):
     CONVERSATION = "conversation"
     PRONUNCIATION_FEEDBACK = "pronunciation_feedback"
     PLACEMENT_SCORING = "placement_scoring"
+    ROLEPLAY_TURN = "roleplay_turn"
 
 
 class LLMRouter:

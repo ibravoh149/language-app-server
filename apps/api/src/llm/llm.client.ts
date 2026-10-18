@@ -3,7 +3,7 @@ import axios from 'axios';
 import { env } from '../config/env';
 
 export interface LlmRequest {
-  task: 'placement_scoring' | 'translation' | 'grammar_check' | 'vocabulary' | 'conversation' | 'pronunciation_feedback';
+  task: 'placement_scoring' | 'roleplay_turn' | 'translation' | 'grammar_check' | 'vocabulary' | 'conversation' | 'pronunciation_feedback';
   system: string;
   prompt: string;
   /** Always set a cap (TRACKER D10). */
