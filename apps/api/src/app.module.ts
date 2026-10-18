@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { RequestLoggerMiddleware } from './common/request-logger.middleware';
 import { DatabaseModule } from './database/database.module';
 import { PlacementModule } from './placement/placement.module';
+import { RoleplayModule } from './roleplay/roleplay.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { PlacementModule } from './placement/placement.module';
     DatabaseModule,
     AuthModule,
     PlacementModule,
+    RoleplayModule,
   ],
   controllers: [AppController],
   providers: [AppService],
