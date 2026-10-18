@@ -14,7 +14,9 @@ export type ErrorCode =
   | 'NOT_FOUND'
   | 'EMAIL_TAKEN'
   | 'ACCOUNT_USES_SOCIAL'
+  | 'SESSION_ENDED'
   | 'RATE_LIMITED'
+  | 'TUTOR_UNAVAILABLE'
   | 'INTERNAL';
 
 const STATUS: Record<ErrorCode, number> = {
@@ -29,7 +31,9 @@ const STATUS: Record<ErrorCode, number> = {
   NOT_FOUND: 404,
   EMAIL_TAKEN: 409,
   ACCOUNT_USES_SOCIAL: 409,
+  SESSION_ENDED: 409,
   RATE_LIMITED: 429,
+  TUTOR_UNAVAILABLE: 502,
   INTERNAL: 500,
 };
 

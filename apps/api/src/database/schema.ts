@@ -19,6 +19,7 @@ const timestamps = {
 
 export const cefrLevel = pgEnum('cefr_level', ['A1', 'A2', 'B1', 'B2', 'C1']);
 export const authProvider = pgEnum('auth_provider', ['apple', 'google']);
+export const turnRole = pgEnum('turn_role', ['user', 'ai']);
 export const emailCodePurpose = pgEnum('email_code_purpose', ['verify_email', 'reset_password', 'delete_account']);
 
 // ── Identity ──────────────────────────────────────────────────────────────
@@ -156,6 +157,111 @@ export const userProfiles = pgTable('user_profiles', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ── Roleplay (F2) ─────────────────────────────────────────────────────────
+
+/** Authored roleplay situations. The AI's opening line is scripted, so starting a session costs no LLM call. */
+export const scenarios = pgTable('scenarios', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  slug: varchar('slug', { length: 60 }).notNull().unique(),
+  title: text('title').notNull(),
+  subtitle: text('subtitle').notNull(),
+  emoji: varchar('emoji', { length: 16 }).notNull(),
+  level: cefrLevel('level').notNull(),
+  estimatedMinutes: integer('estimated_minutes').notNull(),
+  situation: text('situation').notNull(),
+  youAre: text('you_are').notNull(),
+  aiIs: text('ai_is').notNull(),
+  /** Server-only instructions for the AI character (who they are, how to steer the scene). */
+  aiPersona: text('ai_persona').notNull(),
+  openingLine: text('opening_line').notNull(),
+  goals: jsonb('goals').$type<string[]>().notNull(),
+  words: jsonb('words').$type<{ de: string; en: string }[]>().notNull(),
+  phrases: jsonb('phrases').$type<string[]>().notNull(),
+  grammar: jsonb('grammar').$type<string[]>().notNull(),
+  active: boolean('active').default(true).notNull(),
+  ...timestamps,
+});
+
+export const speakingSessions = pgTable(
+  'speaking_sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    scenarioId: uuid('scenario_id').notNull().references(() => scenarios.id),
+    startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    turnCount: integer('turn_count').default(0).notNull(),
+    understoodCount: integer('understood_count').default(0).notNull(),
+  },
+  (t) => [index('speaking_sessions_user_idx').on(t.userId)],
+);
+
+export const sessionTurns = pgTable(
+  'session_turns',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sessionId: uuid('session_id').notNull().references(() => speakingSessions.id, { onDelete: 'cascade' }),
+    role: turnRole('role').notNull(),
+    text: text('text').notNull(),
+    /** Learner turns only: 'voice' or 'text'. */
+    inputMode: varchar('input_mode', { length: 8 }),
+    /** Learner turns only: whether the tutor followed the meaning. */
+    understood: boolean('understood'),
+    /** AI turns only: LLM usage for the call that produced this reply (D10). */
+    promptTokens: integer('prompt_tokens'),
+    completionTokens: integer('completion_tokens'),
+    ...timestamps,
+  },
+  (t) => [index('session_turns_session_idx').on(t.sessionId, t.createdAt)],
+);
+
+/** Corrections from every skill end up here; feeds the "Why" library later. */
+export const corrections = pgTable(
+  'corrections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    sessionId: uuid('session_id').references(() => speakingSessions.id, { onDelete: 'cascade' }),
+    turnId: uuid('turn_id').references(() => sessionTurns.id, { onDelete: 'cascade' }),
+    original: text('original').notNull(),
+    corrected: text('corrected').notNull(),
+    ruleKey: varchar('rule_key', { length: 80 }).notNull(),
+    ruleName: text('rule_name').notNull(),
+    explanation: text('explanation').notNull(),
+    ...timestamps,
+  },
+  (t) => [index('corrections_session_idx').on(t.sessionId), index('corrections_user_idx').on(t.userId)],
+);
+
+/** Append-only log of genuine production ("spoke"); the source of truth for streaks and progress. */
+export const activityEvents = pgTable(
+  'activity_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    type: varchar('type', { length: 24 }).notNull(),
+    refType: varchar('ref_type', { length: 32 }),
+    refId: uuid('ref_id'),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('activity_events_user_time_idx').on(t.userId, t.occurredAt)],
+);
+
+/** One row per user. A day counts when the learner produced ≥1 understood sentence (UTC days for now). */
+export const streaks = pgTable('streaks', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  current: integer('current').default(0).notNull(),
+  longest: integer('longest').default(0).notNull(),
+  /** "YYYY-MM-DD" (UTC) of the last day with production. */
+  lastProducedDate: varchar('last_produced_date', { length: 10 }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type UserProfile = typeof userProfiles.$inferSelect;
 export type PlacementAttempt = typeof placementAttempts.$inferSelect;
+export type Scenario = typeof scenarios.$inferSelect;
+export type SpeakingSession = typeof speakingSessions.$inferSelect;
+export type SessionTurn = typeof sessionTurns.$inferSelect;
