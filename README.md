@@ -221,6 +221,13 @@ node apps/api/scripts/oauth-test-keys.js init /tmp/oauth-keys
 scripts/smoke-oauth.sh http://localhost:3000/api/v1 /tmp/oauth-keys /tmp/api.log
 ```
 
+Roleplay (needs `yarn db:seed` and the LLM service; creates a verified test user):
+
+```bash
+scripts/smoke-roleplay.sh http://localhost:3000/api/v1 /tmp/api.log   # shapes and rules
+scripts/eval-roleplay.sh  http://localhost:3000/api/v1 /tmp/api.log   # tutor quality, 10 fixed lines
+```
+
 Placement scoring quality, with fixed transcripts and expected levels (rerun it
 when switching models, e.g. Ollama → DeepSeek):
 
@@ -347,6 +354,9 @@ These are the only endpoints clients should call.
 | `POST` | `/auth/password/forgot`, `/auth/password/reset` | Password reset with a 6-digit code |
 | `POST` | `/auth/oauth/google`, `/auth/oauth/apple` | Sign in with Google / Apple (ID token verified server-side) |
 | `GET` / `PATCH` | `/me`, `/me/profile` | Current user and onboarding profile |
+| `GET` | `/scenarios`, `/scenarios/:idOrSlug` | Roleplay scenarios ([contract](docs/api/roleplay.md)) |
+| `POST` / `GET` | `/sessions`, `/sessions/:id`, `/sessions/:id/turns`, `/sessions/:id/corrections`, `/sessions/:id/end` | Roleplay conversation: one LLM call per learner turn |
+| `GET` | `/me/progress` | Streak and today's spoken turns |
 | `POST` / `DELETE` | `/me/delete/code`, `/me` | Delete the account (password or emailed code) |
 
 Full request/response shapes and error codes for auth and onboarding:
@@ -369,7 +379,7 @@ curl -X POST http://localhost:3000/api/v1/llm/generate \
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `task` | string | yes | `translation`, `grammar_check`, `vocabulary`, `conversation`, `pronunciation_feedback`, `placement_scoring` |
+| `task` | string | yes | `translation`, `grammar_check`, `vocabulary`, `conversation`, `pronunciation_feedback`, `placement_scoring`, `roleplay_turn` |
 | `prompt` | string | yes | User message |
 | `system` | string | no | System instruction |
 

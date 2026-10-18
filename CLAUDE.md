@@ -110,7 +110,7 @@ docker compose up --build
 ## LLM tasks
 
 Available task types (used in `POST /llm/generate` and `POST /llm/stream`):
-`translation` | `grammar_check` | `vocabulary` | `conversation` | `pronunciation_feedback` | `placement_scoring`
+`translation` | `grammar_check` | `vocabulary` | `conversation` | `pronunciation_feedback` | `placement_scoring` | `roleplay_turn`
 
 NestJS calls the LLM service through `apps/api/src/llm/llm.client.ts`, which always sends `max_tokens` and logs token usage (TRACKER D10).
 
