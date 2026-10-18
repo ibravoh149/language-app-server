@@ -21,6 +21,8 @@ type Tx = Parameters<Parameters<DrizzleDB['transaction']>[0]>[0];
 
 /** Learner turns per user per day (cost control, D10). Multiplied by 5 in development. */
 const DAILY_TURN_CAP = 150;
+/** Longest gap between two turns that still counts as practice time. */
+const MAX_GAP_SEC = 120;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const utcDay = (d = new Date()) => d.toISOString().slice(0, 10);
@@ -204,7 +206,42 @@ export class RoleplayService {
       .select({ done: count() })
       .from(speakingSessions)
       .where(and(eq(speakingSessions.userId, userId), isNotNull(speakingSessions.endedAt)));
-    return { streak: { ...streak, extendedToday: false }, spokenTurnsToday: Number(spoken), sessionsCompleted: Number(done) };
+    const week = await this.practiceWeek(userId);
+    return {
+      streak: { ...streak, extendedToday: false },
+      spokenTurnsToday: Number(spoken),
+      sessionsCompleted: Number(done),
+      secondsPracticedToday: week[week.length - 1].secondsPracticed,
+      week,
+    };
+  }
+
+  /**
+   * Active practice time per UTC day for the last 7 days (oldest first). Time is the gap
+   * between consecutive turns in a session, each capped at 2 minutes, so a conversation
+   * left open doesn't count as practice and unfinished sessions still count.
+   */
+  private async practiceWeek(userId: string): Promise<{ date: string; secondsPracticed: number; turns: number }[]> {
+    const days = Array.from({ length: 7 }, (_, i) => utcDay(new Date(Date.now() - (6 - i) * 86_400_000)));
+    const from = new Date(`${days[0]}T00:00:00Z`);
+    const rows = await this.db.execute<{ day: string; seconds: number; turns: number }>(sql`
+      with t as (
+        select st.created_at, st.role,
+          extract(epoch from (st.created_at - lag(st.created_at) over (partition by st.session_id order by st.created_at))) as gap
+        from ${sessionTurns} st
+        join ${speakingSessions} s on s.id = st.session_id
+        where s.user_id = ${userId} and st.created_at >= ${from.toISOString()}::timestamptz
+      )
+      select to_char(created_at at time zone 'UTC', 'YYYY-MM-DD') as day,
+        coalesce(sum(least(coalesce(gap, 0), ${MAX_GAP_SEC}::numeric)), 0)::int as seconds,
+        (count(*) filter (where role = 'user'))::int as turns
+      from t group by 1`);
+    const byDay = new Map(Array.from(rows as Iterable<{ day: string; seconds: number; turns: number }>).map((r) => [r.day, r]));
+    return days.map((date) => ({
+      date,
+      secondsPracticed: Number(byDay.get(date)?.seconds ?? 0),
+      turns: Number(byDay.get(date)?.turns ?? 0),
+    }));
   }
 
   // ── Streak ───────────────────────────────────────────────────────────────

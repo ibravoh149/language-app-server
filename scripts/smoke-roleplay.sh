@@ -112,7 +112,11 @@ expect 409 SESSION_ENDED "turn after end rejected"
 req GET /me/progress "" "$ACCESS"
 expect 200 "" "progress"
 [[ $(j .sessionsCompleted) == 1 ]] || fail "progress counts" "$BODY"
-ok "progress: $(j -c .)"
+ok "progress: $(j -c '{streak, spokenTurnsToday, sessionsCompleted, secondsPracticedToday}')"
+TODAY=$(date -u +%F)
+[[ $(j '.week|length') == 7 && $(j '.week[6].date') == "$TODAY" && $(j '.week[6].turns') == 2 && $(j '.secondsPracticedToday') -gt 0 && $(j '.secondsPracticedToday') == $(j '.week[6].secondsPracticed') ]] \
+  || fail "week: 7 days ending today, today's turns and practice time" "$BODY"
+ok "week: 7 days, today = $(j '.week[6].turns') turns, $(j .secondsPracticedToday)s practised"
 
 req GET /scenarios "" "$ACCESS"
 [[ $(j '[.scenarios[] | select(.slug=="doctor")][0].timesPracticed') == 1 ]] || fail "timesPracticed" "$BODY"

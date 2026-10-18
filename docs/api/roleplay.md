@@ -1,6 +1,6 @@
 # API contract — F2: Roleplay conversation
 
-Status: **v2, agreed** (2026-10-18). Owner: backend (lead).
+Status: **v2.1, agreed** (2026-10-18; v2.1 adds practice time to `GET /me/progress`). Owner: backend (lead).
 Consumers: `languageapp-mobile` (`src/services/roleplay-api.ts`).
 Supersedes the parked slice 1 draft (v1), which used a dev user instead of auth.
 
@@ -163,7 +163,27 @@ Idempotent.
 ### ✅ `GET /me/progress`
 For the home screen.
 
-**200** `{ "streak": Streak, "spokenTurnsToday": 4, "sessionsCompleted": 3 }`
+**200**
+```json
+{
+  "streak": { "current": 3, "longest": 5, "producedToday": true, "extendedToday": false },
+  "spokenTurnsToday": 4,
+  "sessionsCompleted": 3,
+  "secondsPracticedToday": 412,
+  "week": [
+    { "date": "2026-10-12", "secondsPracticed": 0, "turns": 0 },
+    …
+    { "date": "2026-10-18", "secondsPracticed": 412, "turns": 4 }
+  ]
+}
+```
+- `week`: the last 7 UTC days, **oldest first**, always 7 entries (zeros included).
+- Practice time is **active** time: the gaps between consecutive turns in a
+  conversation, each capped at 2 minutes. A conversation left open doesn't count
+  as practice, and unfinished sessions still count. Compare
+  `secondsPracticedToday` with `profile.dailyMinutes × 60` for the daily-goal ring.
+- `secondsPracticedToday` and `week` were added in v2.1; clients should treat them
+  as optional.
 
 ## Not in F2
 
