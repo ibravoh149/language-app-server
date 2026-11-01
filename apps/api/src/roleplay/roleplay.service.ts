@@ -27,6 +27,12 @@ const MAX_GAP_SEC = 120;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const utcDay = (d = new Date()) => d.toISOString().slice(0, 10);
+
+/** Postgres unique_violation (23505), possibly wrapped by the query builder. */
+const isUniqueViolation = (e: unknown): boolean => {
+  const err = e as { code?: string; cause?: { code?: string } };
+  return err?.code === '23505' || err?.cause?.code === '23505';
+};
 const previousUtcDay = (day: string) => utcDay(new Date(Date.parse(`${day}T00:00:00Z`) - 86_400_000));
 
 @Injectable()
@@ -84,8 +90,14 @@ export class RoleplayService {
    * One learner turn: a single LLM call, then everything is stored together. If the tutor
    * fails, nothing is stored and the client can safely re-send the same text.
    */
-  async takeTurn(userId: string, sessionId: string, text: string, inputMode: 'voice' | 'text') {
+  async takeTurn(userId: string, sessionId: string, text: string, inputMode: 'voice' | 'text', clientTurnId?: string) {
     const session = await this.findSession(userId, sessionId);
+    // Idempotency: a retry with the same key replays the stored response (no LLM call, no new
+    // writes), even if the session has since ended. Checked before anything else.
+    if (clientTurnId) {
+      const replay = await this.replayTurn(sessionId, clientTurnId, text);
+      if (replay) return replay;
+    }
     if (session.endedAt) throw new AppError('SESSION_ENDED', 'This conversation has ended. Start a new one.');
     this.limiter.hit(`roleplay-turns:${userId}`, DAILY_TURN_CAP, 86_400);
 
@@ -118,53 +130,79 @@ export class RoleplayService {
     // fails drops that card instead of failing the turn.
     const resolved = await this.resolveActions(userId, sessionId, scenario, memory.goalsAchieved, result.actions);
 
-    return this.db.transaction(async (tx) => {
-      const [userTurn] = await tx
-        .insert(sessionTurns)
-        .values({ sessionId, role: 'user', text, inputMode, understood: result.understood })
-        .returning();
-      const [reply] = await tx
-        .insert(sessionTurns)
-        .values({
-          sessionId,
-          role: 'ai',
-          text: result.reply,
-          promptTokens: result.promptTokens,
-          completionTokens: result.completionTokens,
-        })
-        .returning();
-      const saved = result.corrections.length
-        ? await tx
-            .insert(corrections)
-            .values(result.corrections.map((c) => ({ ...c, userId, sessionId, turnId: userTurn.id })))
-            .returning()
-        : [];
-      await tx
-        .update(speakingSessions)
-        .set({
-          turnCount: sql`${speakingSessions.turnCount} + 1`,
-          understoodCount: sql`${speakingSessions.understoodCount} + ${result.understood ? 1 : 0}`,
+    try {
+      return await this.db.transaction(async (tx) => {
+        const [userTurn] = await tx
+          .insert(sessionTurns)
+          .values({ sessionId, role: 'user', text, inputMode, understood: result.understood, clientTurnId })
+          .returning();
+        const [reply] = await tx
+          .insert(sessionTurns)
+          .values({
+            sessionId,
+            role: 'ai',
+            text: result.reply,
+            promptTokens: result.promptTokens,
+            completionTokens: result.completionTokens,
+          })
+          .returning();
+        const saved = result.corrections.length
+          ? await tx
+              .insert(corrections)
+              .values(result.corrections.map((c) => ({ ...c, userId, sessionId, turnId: userTurn.id })))
+              .returning()
+          : [];
+        await tx
+          .update(speakingSessions)
+          .set({
+            turnCount: sql`${speakingSessions.turnCount} + 1`,
+            understoodCount: sql`${speakingSessions.understoodCount} + ${result.understood ? 1 : 0}`,
+            goalsAchieved: resolved.goalsAchieved,
+          })
+          .where(eq(speakingSessions.id, sessionId));
+
+        let extendedToday = false;
+        if (result.understood) {
+          await tx.insert(activityEvents).values({ userId, type: 'spoke', refType: 'session_turn', refId: userTurn.id });
+          extendedToday = await this.recordProduction(tx, userId);
+        }
+        const streak = await this.readStreak(tx, userId);
+
+        const response = {
+          userTurn: toTurnDto(userTurn),
+          reply: toTurnDto(reply),
+          understood: result.understood,
+          corrections: saved.map(toCorrectionDto),
+          streak: { ...streak, extendedToday },
+          actions: resolved.actions,
           goalsAchieved: resolved.goalsAchieved,
-        })
-        .where(eq(speakingSessions.id, sessionId));
-
-      let extendedToday = false;
-      if (result.understood) {
-        await tx.insert(activityEvents).values({ userId, type: 'spoke', refType: 'session_turn', refId: userTurn.id });
-        extendedToday = await this.recordProduction(tx, userId);
+        };
+        // Stored in the same transaction, so a replay returns exactly what this call returned.
+        if (clientTurnId) await tx.update(sessionTurns).set({ response }).where(eq(sessionTurns.id, userTurn.id));
+        return response;
+      });
+    } catch (error) {
+      // Two copies of the same turn raced: the unique (session, clientTurnId) index let one commit
+      // and rolled this one back. Return the winner's response.
+      if (clientTurnId && isUniqueViolation(error)) {
+        const replay = await this.replayTurn(sessionId, clientTurnId, text);
+        if (replay) return replay;
       }
-      const streak = await this.readStreak(tx, userId);
+      throw error;
+    }
+  }
 
-      return {
-        userTurn: toTurnDto(userTurn),
-        reply: toTurnDto(reply),
-        understood: result.understood,
-        corrections: saved.map(toCorrectionDto),
-        streak: { ...streak, extendedToday },
-        actions: resolved.actions,
-        goalsAchieved: resolved.goalsAchieved,
-      };
-    });
+  /** The stored response for this idempotency key, or null. The same key with different text is refused. */
+  private async replayTurn(sessionId: string, clientTurnId: string, text: string) {
+    const [prior] = await this.db
+      .select({ text: sessionTurns.text, response: sessionTurns.response })
+      .from(sessionTurns)
+      .where(and(eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.clientTurnId, clientTurnId)));
+    if (!prior) return null;
+    if (prior.text !== text) {
+      throw new AppError('IDEMPOTENCY_KEY_REUSED', 'This turn id was already used for a different message.');
+    }
+    return prior.response as Record<string, unknown>;
   }
 
   async getSession(userId: string, sessionId: string) {

@@ -1,6 +1,6 @@
 # API contract — F2: Roleplay conversation
 
-Status: **v3, agreed** (2026-11-01; v2.1 practice time, v3 tutor actions + My Words, D24). Owner: backend (lead).
+Status: **v3.1, agreed** (2026-11-01; v2.1 practice time, v3 tutor actions + My Words, v3.1 idempotent turns). Owner: backend (lead).
 Consumers: `languageapp-mobile` (`src/services/roleplay-api.ts`).
 Supersedes the parked slice 1 draft (v1), which used a dev user instead of auth.
 
@@ -29,6 +29,7 @@ LLM spend kept low · D12 German voice, explanations as text.
 | 400 | `VALIDATION_FAILED` | Bad body. Show `fields` |
 | 404 | `NOT_FOUND` | Unknown scenario or session (or not yours) |
 | 409 | `SESSION_ENDED` | Turn posted to an ended session. Offer a new session |
+| 409 | `IDEMPOTENCY_KEY_REUSED` | A `clientTurnId` was reused with different text (a client bug, not a retry) |
 | 429 | `RATE_LIMITED` | Daily turn cap reached (cost control, D10). `Retry-After` in seconds |
 | 502 | `TUTOR_UNAVAILABLE` | LLM failed or returned unusable output after one retry. Keep the learner's text and offer retry; nothing is stored |
 
@@ -150,6 +151,7 @@ Request
 |---|---|---|
 | `text` | string, 1–500 chars (trimmed) | The learner's on-device transcript or typed text |
 | `inputMode` | `"voice"` \| `"text"` | Stored for analytics; both count as production |
+| `clientTurnId` | UUID, optional (recommended) | Idempotency key: generate one per learner turn and **reuse it on every retry** of that turn |
 
 **200**
 ```json
@@ -181,6 +183,12 @@ Request
 - `corrections` is empty when the sentence was correct. At most 3 per turn, most
   important first; small slips that don't matter at the level are skipped.
 - On `502 TUTOR_UNAVAILABLE` **nothing is stored**: re-sending the same text is safe.
+- **Idempotency (v3.1):** a request with a `clientTurnId` already used in this session
+  returns the **stored response unchanged** (200, same ids, same corrections and actions):
+  no LLM call, no new writes, even if the session has since ended. Same key with
+  different text → `409 IDEMPOTENCY_KEY_REUSED`. Two simultaneous copies end up as one
+  turn (a unique index on session + key). Without a key, a retry after a lost response
+  stores a second turn.
 - **409** `SESSION_ENDED` · **429** `RATE_LIMITED` · **404** `NOT_FOUND`
 
 ### ✅ `GET /sessions/:id`
