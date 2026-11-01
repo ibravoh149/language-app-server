@@ -5,9 +5,9 @@ from .base import GenerateOptions, GenerateResult, LLMProvider
 class OpenAICompatibleProvider(LLMProvider):
     """Shared implementation for providers that speak the OpenAI chat API (Ollama, DeepSeek, Groq)."""
 
-    def __init__(self, base_url: str, api_key: str, model: str, extra_body: dict | None = None):
+    def __init__(self, base_url: str, api_key: str, model: str, extra_body: dict | None = None, max_retries: int = 2):
         self._model = model
-        self._client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+        self._client = AsyncOpenAI(base_url=base_url, api_key=api_key, max_retries=max_retries)
         # Provider-specific request fields (e.g. Groq's reasoning_effort), sent with every call.
         self._extra_body = extra_body
 

@@ -17,6 +17,10 @@ class LLMRouter:
         self._providers = providers
         self._routing = routing
 
+    def local(self) -> LLMProvider | None:
+        """The local provider (Ollama), used as a fallback when a hosted provider is rate-limited."""
+        return self._providers.get("ollama")
+
     def get(self, task: TaskType) -> LLMProvider:
         provider_name = self._routing.get(task)
         if not provider_name:
