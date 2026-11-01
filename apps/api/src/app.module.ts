@@ -7,6 +7,7 @@ import { RequestLoggerMiddleware } from './common/request-logger.middleware';
 import { DatabaseModule } from './database/database.module';
 import { PlacementModule } from './placement/placement.module';
 import { RoleplayModule } from './roleplay/roleplay.module';
+import { WordsModule } from './words/words.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { RoleplayModule } from './roleplay/roleplay.module';
     AuthModule,
     PlacementModule,
     RoleplayModule,
+    WordsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

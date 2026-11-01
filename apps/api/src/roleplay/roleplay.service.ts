@@ -15,7 +15,8 @@ import {
   streaks,
   userProfiles,
 } from '../database/schema';
-import { TutorService } from './tutor.service';
+import { WordsService } from '../words/words.service';
+import { TutorAction, TutorService } from './tutor.service';
 
 type Tx = Parameters<Parameters<DrizzleDB['transaction']>[0]>[0];
 
@@ -36,6 +37,7 @@ export class RoleplayService {
     @Inject(DB) private readonly db: DrizzleDB,
     private readonly tutor: TutorService,
     private readonly limiter: RateLimiter,
+    private readonly words: WordsService,
   ) {}
 
   // ── Scenarios ────────────────────────────────────────────────────────────
@@ -98,13 +100,23 @@ export class RoleplayService {
       .from(userProfiles)
       .where(eq(userProfiles.userId, userId));
 
+    const memory = {
+      recentMistakes: await this.recentMistakes(userId),
+      recentWords: await this.words.recentLemmas(userId),
+      goalsAchieved: session.goalsAchieved ?? [],
+    };
+
     let result: Awaited<ReturnType<TutorService['respond']>>;
     try {
-      result = await this.tutor.respond(scenario, history, text, profile?.spokenLanguage ?? 'en');
+      result = await this.tutor.respond(scenario, history, text, profile?.spokenLanguage ?? 'en', memory);
     } catch (error) {
       this.logger.warn(`tutor failed for session ${sessionId}: ${error instanceof Error ? error.message : error}`);
       throw new AppError('TUTOR_UNAVAILABLE', 'Your partner could not answer just now. Please try again.');
     }
+
+    // Word lookups may need a dictionary call, so they run before the transaction. A lookup that
+    // fails drops that card instead of failing the turn.
+    const resolved = await this.resolveActions(userId, sessionId, scenario, memory.goalsAchieved, result.actions);
 
     return this.db.transaction(async (tx) => {
       const [userTurn] = await tx
@@ -132,6 +144,7 @@ export class RoleplayService {
         .set({
           turnCount: sql`${speakingSessions.turnCount} + 1`,
           understoodCount: sql`${speakingSessions.understoodCount} + ${result.understood ? 1 : 0}`,
+          goalsAchieved: resolved.goalsAchieved,
         })
         .where(eq(speakingSessions.id, sessionId));
 
@@ -148,6 +161,8 @@ export class RoleplayService {
         understood: result.understood,
         corrections: saved.map(toCorrectionDto),
         streak: { ...streak, extendedToday },
+        actions: resolved.actions,
+        goalsAchieved: resolved.goalsAchieved,
       };
     });
   }
@@ -165,6 +180,7 @@ export class RoleplayService {
       scenario: toSummary(scenario),
       turns: turns.map(toTurnDto),
       corrections: await this.sessionCorrections(sessionId),
+      goalsAchieved: session.goalsAchieved ?? [],
     };
   }
 
@@ -242,6 +258,71 @@ export class RoleplayService {
       secondsPracticed: Number(byDay.get(date)?.seconds ?? 0),
       turns: Number(byDay.get(date)?.turns ?? 0),
     }));
+  }
+
+  // ── Tutor actions (D24) ──────────────────────────────────────────────────
+
+  /**
+   * Turns the tutor's requested actions into contract actions: validates goal indexes,
+   * looks words up in the dictionary (saving them when asked), and drops anything invalid.
+   * At most 2 word lookups per turn, since a cache miss costs a dictionary call.
+   */
+  private async resolveActions(
+    userId: string,
+    sessionId: string,
+    scenario: Scenario,
+    alreadyAchieved: number[],
+    requested: TutorAction[],
+  ) {
+    const actions: Record<string, unknown>[] = [];
+    const goals = new Set(alreadyAchieved);
+    let lookups = 0;
+    for (const a of requested) {
+      if (a.type === 'goal') {
+        if (a.index < scenario.goals.length && !goals.has(a.index)) {
+          goals.add(a.index);
+          actions.push({ type: 'goal_achieved', goalIndex: a.index, goal: scenario.goals[a.index] });
+        }
+      } else if (a.type === 'word') {
+        if (lookups >= 2) continue;
+        lookups++;
+        try {
+          const entry = await this.words.lookup(userId, a.lemma);
+          const word = a.save
+            ? (await this.words.save(userId, entry, 'roleplay', sessionId)).word
+            : await this.words.describe(userId, entry);
+          actions.push({ type: 'word_card', word });
+        } catch (error) {
+          this.logger.warn(`word action dropped (${a.lemma}): ${error instanceof Error ? error.message : error}`);
+        }
+      } else if (a.type === 'play') {
+        actions.push({ type: 'play', text: a.text });
+      } else if (a.type === 'grammar') {
+        actions.push({
+          type: 'grammar_card',
+          ruleKey: (a.ruleKey || a.ruleName).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'grammar',
+          ruleName: a.ruleName,
+          explanation: a.explanation,
+          examples: a.examples,
+        });
+      } else if (a.type === 'complete') {
+        actions.push({ type: 'scenario_complete', reason: a.reason });
+      }
+    }
+    return { actions, goalsAchieved: [...goals].sort((x, y) => x - y) };
+  }
+
+  /** The learner's most frequent recent mistakes (rule names, last 14 days) for the tutor's memory. */
+  private async recentMistakes(userId: string): Promise<string[]> {
+    const since = new Date(Date.now() - 14 * 86_400_000);
+    const rows = await this.db
+      .select({ ruleName: corrections.ruleName, n: count() })
+      .from(corrections)
+      .where(and(eq(corrections.userId, userId), gte(corrections.createdAt, since)))
+      .groupBy(corrections.ruleName)
+      .orderBy(desc(count()))
+      .limit(3);
+    return rows.map((r) => r.ruleName);
   }
 
   // ── Streak ───────────────────────────────────────────────────────────────
