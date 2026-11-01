@@ -212,9 +212,16 @@ export const sessionTurns = pgTable(
     /** AI turns only: LLM usage for the call that produced this reply (D10). */
     promptTokens: integer('prompt_tokens'),
     completionTokens: integer('completion_tokens'),
+    /** Learner turns only: the client's idempotency key; a retry with the same key replays `response`. */
+    clientTurnId: uuid('client_turn_id'),
+    /** Learner turns only: the exact response returned for this turn, replayed on a retry. */
+    response: jsonb('response'),
     ...timestamps,
   },
-  (t) => [index('session_turns_session_idx').on(t.sessionId, t.createdAt)],
+  (t) => [
+    index('session_turns_session_idx').on(t.sessionId, t.createdAt),
+    uniqueIndex('session_turns_client_turn_idx').on(t.sessionId, t.clientTurnId),
+  ],
 );
 
 /** Corrections from every skill end up here; feeds the "Why" library later. */
