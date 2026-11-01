@@ -1,6 +1,6 @@
 # API contract — F2: Roleplay conversation
 
-Status: **v2.1, agreed** (2026-10-18; v2.1 adds practice time to `GET /me/progress`). Owner: backend (lead).
+Status: **v3, agreed** (2026-11-01; v2.1 practice time, v3 tutor actions + My Words, D24). Owner: backend (lead).
 Consumers: `languageapp-mobile` (`src/services/roleplay-api.ts`).
 Supersedes the parked slice 1 draft (v1), which used a dev user instead of auth.
 
@@ -86,6 +86,33 @@ interface Streak {
 }
 ```
 
+```ts
+/** A word in the learner's list. Details come from the server's dictionary cache. */
+interface Word {
+  id: string;                // user_words id (null-free once saved)
+  lemma: string;             // base form without article: "Kaution"
+  article: 'der' | 'die' | 'das' | null;   // null for non-nouns
+  plural: string | null;     // "Kautionen"
+  partOfSpeech: 'noun' | 'verb' | 'adjective' | 'adverb' | 'phrase' | 'other';
+  meaning: string;           // in the learner's spokenLanguage: "deposit"
+  example: string;           // short German example sentence
+  saved: boolean;            // in My Words?
+  source: 'roleplay' | 'manual';
+  createdAt: string | null;  // when saved; null if not saved
+}
+
+/**
+ * Things the tutor asks the app to do this turn (D24). The app renders them in
+ * order after the reply; unknown types must be ignored (new ones may be added).
+ */
+type Action =
+  | { type: 'word_card'; word: Word }                  // show a word; `word.saved` says if it was saved
+  | { type: 'play'; text: string }                     // speak a German phrase in the learner's voice
+  | { type: 'grammar_card'; ruleKey: string; ruleName: string; explanation: string; examples: string[] }
+  | { type: 'goal_achieved'; goalIndex: number; goal: string }   // index into scenario.goals
+  | { type: 'scenario_complete'; reason: string };     // the scene reached its end (learner-language sentence)
+```
+
 The streak day is the **UTC** calendar day for now (BACKLOG: switch to the
 learner's timezone once it's stored).
 
@@ -131,9 +158,24 @@ Request
   "reply":    { "id": "…", "role": "ai",   "text": "Das tut mir leid. Haben Sie auch Fieber?", "createdAt": "…" },
   "understood": true,
   "corrections": [],
-  "streak": { "current": 1, "longest": 1, "producedToday": true, "extendedToday": true }
+  "streak": { "current": 1, "longest": 1, "producedToday": true, "extendedToday": true },
+  "actions": [
+    { "type": "word_card", "word": { "id": "…", "lemma": "Fieber", "article": "das", "plural": null, "partOfSpeech": "noun",
+      "meaning": "fever", "example": "Ich habe seit gestern Fieber.", "saved": true, "source": "roleplay", "createdAt": "…" } },
+    { "type": "goal_achieved", "goalIndex": 0, "goal": "Explain what hurts and since when" }
+  ],
+  "goalsAchieved": [0]
 }
 ```
+- `actions` (v3): what the tutor chose to do, at most 4 per turn. The tutor picks
+  them; the server validates and resolves them (a `word_card` word comes from the
+  dictionary cache, and is saved to My Words when the learner asked to save it or
+  asked what a word means). Render them after the reply; ignore unknown types.
+- `goalsAchieved` (v3): indexes of `scenario.goals` met so far in this session,
+  ascending. A `scenario_complete` action is a suggestion; the session only ends
+  when the client calls `/end`.
+- The tutor also sees the learner's recent mistakes and recently saved words
+  (personal memory) and may weave them into the conversation.
 - `understood`: the tutor followed the learner's meaning. Only understood turns
   count as production (D1) and can extend the streak.
 - `corrections` is empty when the sentence was correct. At most 3 per turn, most
@@ -144,7 +186,7 @@ Request
 ### ✅ `GET /sessions/:id`
 The transcript so far, e.g. to resume after the app was killed.
 
-**200** `{ "session": {…}, "scenario": ScenarioSummary, "turns": Turn[], "corrections": Correction[] }`
+**200** `{ "session": {…}, "scenario": ScenarioSummary, "turns": Turn[], "corrections": Correction[], "goalsAchieved": number[] }`
 
 ### ✅ `GET /sessions/:id/corrections`
 **200** `{ "corrections": Correction[] }`, oldest first. For the correction screen.
@@ -185,9 +227,21 @@ For the home screen.
 - `secondsPracticedToday` and `week` were added in v2.1; clients should treat them
   as optional.
 
+### ✅ `GET /me/words`
+My Words, newest first. **200** `{ "words": Word[] }` (all with `saved: true`).
+
+### ✅ `POST /me/words`
+Save a word manually, e.g. the save toggle on a word card. Body `{ "lemma": "Kaution" }`
+(article optional: "die Kaution" works). Looked up in the dictionary cache first.
+**201** `{ "word": Word }` · **200** if it was already saved · **400** `VALIDATION_FAILED`
+· **502** `TUTOR_UNAVAILABLE` if the dictionary entry couldn't be created.
+
+### ✅ `DELETE /me/words/:id`
+Remove from My Words. **204** · **404** `NOT_FOUND`.
+
 ## Not in F2
 
 Streaming replies (B-LLM-4), audio upload and pronunciation scoring (B-LLM-3),
-saving words to My Words, persisting "Save rule" to the Why library, scenario
+spaced repetition for My Words (next feature), persisting "Save rule" to the Why library, scenario
 packs, learner-written custom scenarios. The correction screen's "Save rule"
 button can be shown disabled or hidden.
