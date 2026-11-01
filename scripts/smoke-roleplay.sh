@@ -75,6 +75,8 @@ req POST /sessions/$SID/turns '{"text":"Ich habe seit gestern Kopfschmerzen.","i
 expect 200 "" "turn 1 (correct German)"
 [[ $(j .userTurn.role) == user && $(j .reply.role) == ai && -n $(j .reply.text) ]] || fail "turn shape" "$BODY"
 ok "reply: $(j .reply.text) | understood=$(j .understood) corrections=$(j '.corrections|length')"
+[[ $(j '.actions|type') == array && $(j '.goalsAchieved|type') == array ]] || fail "v3 actions + goalsAchieved present" "$BODY"
+ok "v3 fields: actions=$(j -c '[.actions[].type]') goalsAchieved=$(j -c .goalsAchieved)"
 [[ $(j .streak.current) == 1 && $(j .streak.extendedToday) == true ]] || [[ $(j .understood) == false ]] || fail "streak extended" "$BODY"
 ok "streak: current=$(j .streak.current) extendedToday=$(j .streak.extendedToday)"
 
@@ -121,5 +123,23 @@ ok "week: 7 days, today = $(j '.week[6].turns') turns, $(j .secondsPracticedToda
 req GET /scenarios "" "$ACCESS"
 [[ $(j '[.scenarios[] | select(.slug=="doctor")][0].timesPracticed') == 1 ]] || fail "timesPracticed" "$BODY"
 ok "doctor now practised once"
+
+# My Words (v3)
+req POST /me/words '{"lemma":"die Kaution"}' "$ACCESS"
+expect 201 "" "save a word manually"
+WID=$(j .word.id)
+[[ $(j .word.lemma) == Kaution && $(j .word.article) == die && $(j .word.saved) == true && -n $(j .word.meaning) ]] || fail "word details from dictionary" "$BODY"
+ok "word: $(j .word.article) $(j .word.lemma) ($(j .word.plural)) = $(j .word.meaning) — $(j .word.example)"
+req POST /me/words '{"lemma":"Kaution"}' "$ACCESS"
+expect 200 "" "saving again is idempotent (and served from the cache)"
+req GET /me/words "" "$ACCESS"
+expect 200 "" "list My Words"
+[[ $(j '[.words[] | select(.lemma=="Kaution")] | length') == 1 ]] || fail "listed once" "$BODY"
+req DELETE /me/words/$WID "" "$ACCESS"
+expect 204 "" "remove a word"
+req DELETE /me/words/$WID "" "$ACCESS"
+expect 404 NOT_FOUND "removing again → not found"
+req POST /me/words '{"lemma":""}' "$ACCESS"
+expect 400 VALIDATION_FAILED "empty word rejected"
 
 echo "All $pass checks passed."

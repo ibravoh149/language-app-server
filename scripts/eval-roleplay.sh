@@ -52,4 +52,24 @@ case_ train  "Ich will fahren nach Hamburg heute."                  true  yes "w
 case_ flat   "Wie hoch ist die Miete?"                              true  no  "correct question"
 case_ flat   "Banane Fenster blau gestern Tisch."                   false no  "nonsense"
 
+# Tools (D24): does the tutor choose the right action?
+# tool_ <scenario> <learner text> <expected contract action type> <label>
+tool_() {
+  local sid out types mark
+  sid=$(post /sessions "{\"scenarioId\":\"$1\"}" "$TOKEN" | jq -r .session.id)
+  out=$(post "/sessions/$sid/turns" "$(jq -nc --arg t "$2" '{text:$t,inputMode:"voice"}')" "$TOKEN")
+  types=$(jq -r '[.actions[]?.type] | join(",")' <<<"$out")
+  total=$((total + 1))
+  if [[ ",$types," == *",$3,"* ]]; then good=$((good + 1)); mark="✓"; else mark="✗"; fi
+  printf '  %s %-30s actions=[%s] want %s\n' "$mark" "$4" "$types" "$3"
+  jq -r '.actions[]? | if .type=="word_card" then "      → word: \(.word.article // "") \(.word.lemma) = \(.word.meaning) (saved=\(.word.saved))" elif .type=="goal_achieved" then "      → goal \(.goalIndex): \(.goal)" elif .type=="play" then "      → play: \(.text)" elif .type=="grammar_card" then "      → grammar: \(.ruleName)" else "      → \(.type): \(.reason // "")" end' <<<"$out"
+  post "/sessions/$sid/end" '{}' "$TOKEN" >/dev/null
+}
+echo "Tool choice:"
+tool_ flat   "Entschuldigung, was heißt deposit auf Deutsch?"                     word_card     "asks for a word"
+tool_ cafe   "Wie sagt man auf Deutsch: the bill, please?"                        play          "asks how to say a phrase"
+tool_ doctor "Ich habe seit gestern starke Kopfschmerzen."                        goal_achieved "meets goal 0 (what hurts, since when)"
+tool_ train  "Eine Fahrkarte nach Hamburg, bitte. Heute, so schnell wie möglich." goal_achieved "meets goal 0 (where and when)"
+tool_ doctor "Warum sagt man 'ich bin gegangen' und nicht 'ich habe gegangen'?"   grammar_card  "asks a grammar question"
+
 echo "$good/$total as expected."
