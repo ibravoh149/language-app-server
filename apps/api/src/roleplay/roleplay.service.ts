@@ -6,6 +6,7 @@ import { DB, DrizzleDB } from '../database/database.module';
 import {
   activityEvents,
   corrections,
+  DictionaryEntry,
   Scenario,
   scenarios,
   sessionTurns,
@@ -126,9 +127,10 @@ export class RoleplayService {
       throw new AppError('TUTOR_UNAVAILABLE', 'Your partner could not answer just now. Please try again.');
     }
 
-    // Word lookups may need a dictionary call, so they run before the transaction. A lookup that
-    // fails drops that card instead of failing the turn.
-    const resolved = await this.resolveActions(userId, sessionId, scenario, memory.goalsAchieved, result.actions);
+    // Word lookups may need a dictionary call, so they run before the transaction (the dictionary
+    // is a shared cache, so a lookup on its own changes nothing for the learner). A lookup that
+    // fails drops that card instead of failing the turn. Saves to My Words are only queued here.
+    const resolved = await this.resolveActions(userId, scenario, memory.goalsAchieved, result.actions);
 
     try {
       return await this.db.transaction(async (tx) => {
@@ -146,6 +148,11 @@ export class RoleplayService {
             completionTokens: result.completionTokens,
           })
           .returning();
+        // Queued word saves join the turn's transaction: if the turn fails, nothing is saved.
+        for (const pending of resolved.pendingSaves) {
+          const { word } = await this.words.save(userId, pending.entry, 'roleplay', sessionId, tx);
+          resolved.actions[pending.index] = { type: 'word_card', word };
+        }
         const saved = result.corrections.length
           ? await tx
               .insert(corrections)
@@ -301,18 +308,14 @@ export class RoleplayService {
   // ── Tutor actions (D24) ──────────────────────────────────────────────────
 
   /**
-   * Turns the tutor's requested actions into contract actions: validates goal indexes,
-   * looks words up in the dictionary (saving them when asked), and drops anything invalid.
+   * Turns the tutor's requested actions into contract actions: validates goal indexes, looks
+   * words up in the dictionary, and drops anything invalid. Saves to My Words are returned as
+   * `pendingSaves` for the turn's transaction to perform, so they commit with the turn.
    * At most 2 word lookups per turn, since a cache miss costs a dictionary call.
    */
-  private async resolveActions(
-    userId: string,
-    sessionId: string,
-    scenario: Scenario,
-    alreadyAchieved: number[],
-    requested: TutorAction[],
-  ) {
+  private async resolveActions(userId: string, scenario: Scenario, alreadyAchieved: number[], requested: TutorAction[]) {
     const actions: Record<string, unknown>[] = [];
+    const pendingSaves: { index: number; entry: DictionaryEntry }[] = [];
     const goals = new Set(alreadyAchieved);
     let lookups = 0;
     for (const a of requested) {
@@ -326,10 +329,13 @@ export class RoleplayService {
         lookups++;
         try {
           const entry = await this.words.lookup(userId, a.lemma);
-          const word = a.save
-            ? (await this.words.save(userId, entry, 'roleplay', sessionId)).word
-            : await this.words.describe(userId, entry);
-          actions.push({ type: 'word_card', word });
+          if (a.save) {
+            // Placeholder, replaced inside the transaction once the save commits.
+            pendingSaves.push({ index: actions.length, entry });
+            actions.push({ type: 'word_card', word: null });
+          } else {
+            actions.push({ type: 'word_card', word: await this.words.describe(userId, entry) });
+          }
         } catch (error) {
           this.logger.warn(`word action dropped (${a.lemma}): ${error instanceof Error ? error.message : error}`);
         }
@@ -347,7 +353,7 @@ export class RoleplayService {
         actions.push({ type: 'scenario_complete', reason: a.reason });
       }
     }
-    return { actions, goalsAchieved: [...goals].sort((x, y) => x - y) };
+    return { actions, pendingSaves, goalsAchieved: [...goals].sort((x, y) => x - y) };
   }
 
   /** The learner's most frequent recent mistakes (rule names, last 14 days) for the tutor's memory. */

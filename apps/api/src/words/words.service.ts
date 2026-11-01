@@ -5,6 +5,8 @@ import { DB, DrizzleDB } from '../database/database.module';
 import { DictionaryEntry, dictionaryEntries, userProfiles, userWords } from '../database/schema';
 import { DictionaryService } from './dictionary.service';
 
+type Tx = Parameters<Parameters<DrizzleDB['transaction']>[0]>[0];
+
 export interface WordDto {
   id: string;
   lemma: string;
@@ -62,16 +64,19 @@ export class WordsService {
     }
   }
 
-  /** Saves a dictionary entry to My Words (idempotent). Returns the word and whether it was newly saved. */
-  async save(userId: string, entry: DictionaryEntry, source: 'roleplay' | 'manual', sessionId?: string) {
-    const [created] = await this.db
+  /**
+   * Saves a dictionary entry to My Words (idempotent). Returns the word and whether it was newly
+   * saved. Pass a transaction to make the save part of a larger atomic write.
+   */
+  async save(userId: string, entry: DictionaryEntry, source: 'roleplay' | 'manual', sessionId?: string, db: DrizzleDB | Tx = this.db) {
+    const [created] = await db
       .insert(userWords)
       .values({ userId, entryId: entry.id, source, sessionId })
       .onConflictDoNothing()
       .returning();
     const row =
       created ??
-      (await this.db.select().from(userWords).where(and(eq(userWords.userId, userId), eq(userWords.entryId, entry.id))))[0];
+      (await db.select().from(userWords).where(and(eq(userWords.userId, userId), eq(userWords.entryId, entry.id))))[0];
     return { word: toDto(entry, row), created: !!created };
   }
 
