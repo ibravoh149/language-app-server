@@ -4,7 +4,7 @@
 #
 #   scripts/dev-llm.sh            # foreground; Ctrl+C stops it
 #
-# Reads OLLAMA_MODEL, DEEPSEEK_API_KEY, DEEPSEEK_MODEL and TASK_ROUTING from .env.
+# Reads OLLAMA_MODEL, DEEPSEEK_*, GROQ_* and TASK_ROUTING from .env.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -20,5 +20,8 @@ exec docker run --rm --name languageapp-llm-dev -p 8000:8000 \
   -e OLLAMA_MODEL="$(get_env OLLAMA_MODEL)" \
   -e DEEPSEEK_API_KEY="$(get_env DEEPSEEK_API_KEY)" \
   -e DEEPSEEK_MODEL="$(get_env DEEPSEEK_MODEL)" \
+  -e GROQ_API_KEY="$(get_env GROQ_API_KEY)" \
+  -e GROQ_MODEL="$(get_env GROQ_MODEL)" \
+  -e GROQ_REASONING_EFFORT="$(get_env GROQ_REASONING_EFFORT)" \
   -e TASK_ROUTING="$(get_env TASK_ROUTING)" \
   languageapp-llm:dev

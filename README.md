@@ -317,7 +317,10 @@ provider, Whisper size or TTS voice never requires a code change. See
 | `OLLAMA_BASE_URL` | `http://host.docker.internal:11434` | Ollama server URL |
 | `OLLAMA_MODEL` | `qwen2.5:7b` | Dev only. A German-capable chat model (e.g. `qwen2.5:7b`, `gemma3:12b`); avoid coder and reasoning models |
 | `DEEPSEEK_API_KEY` | _(empty)_ | Enables the DeepSeek provider when set |
-| `DEEPSEEK_MODEL` | `deepseek-chat` | DeepSeek model name |
+| `DEEPSEEK_MODEL` | `deepseek-chat` | DeepSeek model name. Note: DeepSeek retired the `deepseek-chat` alias in 2026; set a current model id before using it |
+| `GROQ_API_KEY` | _(empty)_ | Groq cloud API key (free tier at console.groq.com). Provider disabled if empty |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | Groq model id |
+| `GROQ_REASONING_EFFORT` | `low` | For reasoning models (gpt-oss): `low` keeps turns fast and cheap; empty for non-reasoning models |
 | `TASK_ROUTING` | every task → `ollama` | JSON map of task → provider |
 
 ### Audio service (`apps/audio`)
@@ -466,6 +469,7 @@ Both providers use the OpenAI-compatible chat API, so they share one interface
 | Provider | Use for | Needs |
 |---|---|---|
 | `ollama` | Local development, self-hosted production | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` |
+| `groq` | Fast hosted inference: development (free tier) and production | `GROQ_API_KEY` |
 | `deepseek` | Hosted production | `DEEPSEEK_API_KEY` |
 
 Every request names a `task`, and `TASK_ROUTING` maps tasks to providers:
