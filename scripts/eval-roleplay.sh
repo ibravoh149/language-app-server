@@ -3,6 +3,7 @@
 # expected "understood" flag and whether a correction is expected.
 #
 #   scripts/eval-roleplay.sh <api-base-url> <api-log-file>
+#   EVAL_DELAY=3 scripts/eval-roleplay.sh …   # seconds between cases, to stay under hosted rate limits
 #
 # Run against whichever model TASK_ROUTING sends roleplay_turn to, to compare
 # models. Each case starts a fresh session (scripted opening + one learner turn).
@@ -13,6 +14,21 @@ BASE=${1:?api base url}
 LOG=${2:?api log file}
 EMAIL="eval-rp+$(date +%s)$RANDOM@example.com"
 total=0; good=0
+DELAY=${EVAL_DELAY:-0}
+TASKS="roleplay_turn|vocabulary"
+LOG_START=$( [[ -n ${LOG:-} && -f ${LOG:-} ]] && wc -l <"$LOG" || echo 0)
+
+# Which model actually answered? A rate-limited hosted provider falls back to the local
+# model, which would silently mix models in one run. Counted from the API log.
+providers_report() {
+  [[ -n ${LOG:-} && -f $LOG ]] || { echo "(pass the API log file to see which model answered)"; return; }
+  local counts
+  counts=$(sed -E $'s/\x1b\\[[0-9;]*m//g' "$LOG" | awk -v from="$LOG_START" 'NR > from && /LlmClient/ && /task=('"$TASKS"')/ { for (i = 1; i <= NF; i++) if ($i ~ /^provider=/) { sub("provider=", "", $i); n[$i]++ } } END { for (p in n) printf "%s=%d ", p, n[p] }')
+  echo "Answered by: ${counts:-nothing logged}"
+  if [[ $(wc -w <<<"$counts") -gt 1 ]]; then
+    echo "⚠ MIXED RUN: more than one model answered (rate-limit fallback?). Results are not valid for one model; rerun with a larger EVAL_DELAY."
+  fi
+}
 
 post() { curl -s -m 180 -X POST "$BASE$1" -H 'Content-Type: application/json' ${3:+-H "Authorization: Bearer $3"} -d "$2"; }
 code_for() {
@@ -29,6 +45,7 @@ post /auth/email/verify "{\"code\":\"$(code_for "$EMAIL")\"}" "$TOKEN" >/dev/nul
 
 # case_ <scenario> <learner text> <expected understood true|false> <expect correction yes|no> <label>
 case_() {
+  sleep "$DELAY"
   local sid out understood n mark
   sid=$(post /sessions "{\"scenarioId\":\"$1\"}" "$TOKEN" | jq -r .session.id)
   out=$(post "/sessions/$sid/turns" "$(jq -nc --arg t "$2" '{text:$t,inputMode:"voice"}')" "$TOKEN")
@@ -55,6 +72,7 @@ case_ flat   "Banane Fenster blau gestern Tisch."                   false no  "n
 # Tools (D24): does the tutor choose the right action?
 # tool_ <scenario> <learner text> <expected contract action type> <label>
 tool_() {
+  sleep "$DELAY"
   local sid out types mark
   sid=$(post /sessions "{\"scenarioId\":\"$1\"}" "$TOKEN" | jq -r .session.id)
   out=$(post "/sessions/$sid/turns" "$(jq -nc --arg t "$2" '{text:$t,inputMode:"voice"}')" "$TOKEN")
@@ -73,3 +91,4 @@ tool_ train  "Eine Fahrkarte nach Hamburg, bitte. Heute, so schnell wie möglich
 tool_ doctor "Warum sagt man 'ich bin gegangen' und nicht 'ich habe gegangen'?"   grammar_card  "asks a grammar question"
 
 echo "$good/$total as expected."
+providers_report

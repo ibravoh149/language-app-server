@@ -221,6 +221,12 @@ node apps/api/scripts/oauth-test-keys.js init /tmp/oauth-keys
 scripts/smoke-oauth.sh http://localhost:3000/api/v1 /tmp/oauth-keys /tmp/api.log
 ```
 
+**Smoke tests vs evals.** Smoke tests check plumbing and rules and don't depend on model
+quality: run them against the local model. Evals measure quality, so run them against the
+model you intend to use (e.g. Groq), sparingly, since each makes ~12–20 LLM calls. Use
+`EVAL_DELAY=3` to stay under free-tier rate limits. Evals print which model answered and
+flag a **mixed run** if a rate-limit fallback to the local model occurred mid-run.
+
 Roleplay (needs `yarn db:seed` and the LLM service; creates a verified test user):
 
 ```bash

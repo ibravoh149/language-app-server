@@ -2,7 +2,8 @@
 # Placement scoring quality check (BACKLOG B-LLM-2): runs fixed transcripts against
 # fixed prompts and compares the level with what a teacher would give.
 #
-#   scripts/eval-placement.sh <api-base-url>
+#   scripts/eval-placement.sh <api-base-url> [api-log-file]
+#   EVAL_DELAY=3 scripts/eval-placement.sh …   # seconds between cases, to stay under hosted rate limits
 #
 # Run it against whichever model TASK_ROUTING sends placement_scoring to (local Ollama
 # or DeepSeek) to compare models. Dev only: it pins each attempt's prompt directly in
@@ -11,12 +12,29 @@
 set -uo pipefail
 
 BASE=${1:?api base url}
+LOG=${2:-}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 Q() { (cd "$ROOT" && docker compose -p languageapp-backend exec -T postgres psql -U languageapp -tAc "$1"); }
 total=0; good=0
+DELAY=${EVAL_DELAY:-0}
+TASKS="placement_scoring"
+LOG_START=$( [[ -n ${LOG:-} && -f ${LOG:-} ]] && wc -l <"$LOG" || echo 0)
+
+# Which model actually answered? A rate-limited hosted provider falls back to the local
+# model, which would silently mix models in one run. Counted from the API log.
+providers_report() {
+  [[ -n ${LOG:-} && -f $LOG ]] || { echo "(pass the API log file to see which model answered)"; return; }
+  local counts
+  counts=$(sed -E $'s/\x1b\\[[0-9;]*m//g' "$LOG" | awk -v from="$LOG_START" 'NR > from && /LlmClient/ && /task=('"$TASKS"')/ { for (i = 1; i <= NF; i++) if ($i ~ /^provider=/) { sub("provider=", "", $i); n[$i]++ } } END { for (p in n) printf "%s=%d ", p, n[p] }')
+  echo "Answered by: ${counts:-nothing logged}"
+  if [[ $(wc -w <<<"$counts") -gt 1 ]]; then
+    echo "⚠ MIXED RUN: more than one model answered (rate-limit fallback?). Results are not valid for one model; rerun with a larger EVAL_DELAY."
+  fi
+}
 
 # case <english prompt> <german transcript> <expected level> <label>
 case_() {
+  sleep "$DELAY"
   local pid id out
   pid=$(Q "select id from placement_prompts where text = \$\$$1\$\$ and spoken_language='en' limit 1")
   [[ -n $pid ]] || { echo "  ? prompt not found: $1"; return; }
@@ -55,3 +73,4 @@ case_ "$STATION" "Wo ist die nächste Bahnhof?" A2 "minor: gender"
 case_ "$WEEKEND" "Letztes Wochenende ich habe einen Freund besucht und wir haben zusammen gekocht." A2 "major: verb not second"
 
 echo "$good/$total as expected."
+providers_report
