@@ -94,6 +94,30 @@ ok "transcript has $(j '.turns|length') turns"
 req GET /sessions/$SID/corrections "" "$ACCESS"
 expect 200 "" "session corrections"
 
+# Idempotency (v3.1): a retry with the same clientTurnId replays the stored response.
+KEY=$(uuidgen | tr 'A-Z' 'a-z')
+llm_calls() { sed -E $'s/\x1b\\[[0-9;]*m//g' "$LOG" | grep -c "task=roleplay_turn" || true; }
+req POST /sessions/$SID/turns "{\"text\":\"Ich habe auch Fieber.\",\"inputMode\":\"voice\",\"clientTurnId\":\"$KEY\"}" "$ACCESS"
+expect 200 "" "turn with an idempotency key"
+FIRST_TURN=$(j .userTurn.id); FIRST_BODY=$(jq -cS . <<<"$BODY"); CALLS=$(llm_calls)
+req POST /sessions/$SID/turns "{\"text\":\"Ich habe auch Fieber.\",\"inputMode\":\"voice\",\"clientTurnId\":\"$KEY\"}" "$ACCESS"
+expect 200 "" "retry with the same key"
+[[ "$(jq -cS . <<<"$BODY")" == "$FIRST_BODY" ]] || fail "retry replays the identical response" "$BODY"
+[[ $(llm_calls) == "$CALLS" ]] || fail "retry makes no LLM call" "calls $CALLS → $(llm_calls)"
+ok "retry replayed the same turn ($FIRST_TURN) without an LLM call"
+req POST /sessions/$SID/turns "{\"text\":\"Etwas anderes.\",\"clientTurnId\":\"$KEY\"}" "$ACCESS"
+expect 409 IDEMPOTENCY_KEY_REUSED "same key with different text is refused"
+req POST /sessions/$SID/turns '{"text":"Hallo","clientTurnId":"not-a-uuid"}' "$ACCESS"
+expect 400 VALIDATION_FAILED "malformed key rejected"
+RACE=$(uuidgen | tr 'A-Z' 'a-z')
+for n in 1 2; do curl -s -m 180 -o /tmp/smoke_race_$n -X POST "$BASE/sessions/$SID/turns" -H 'Content-Type: application/json' -H "Authorization: Bearer $ACCESS" -d "{\"text\":\"Mir ist auch schlecht.\",\"clientTurnId\":\"$RACE\"}" & done; wait
+[[ $(jq -r .userTurn.id /tmp/smoke_race_1) == $(jq -r .userTurn.id /tmp/smoke_race_2) && $(jq -r .userTurn.id /tmp/smoke_race_1) != null ]] \
+  || fail "two simultaneous copies end up as one turn" "$(cat /tmp/smoke_race_1) | $(cat /tmp/smoke_race_2)"
+ok "two simultaneous copies became one turn"
+req GET /sessions/$SID "" "$ACCESS"
+[[ $(j '.turns|length') -eq 9 ]] || fail "transcript: opening + 4 learner turns + 4 replies, no duplicates" "$(j '.turns|length') turns"
+ok "no duplicate turns stored ($(j '.turns|length') turns)"
+
 OTHER="other+$(date +%s)$RANDOM@example.com"
 req POST /auth/signup "{\"name\":\"Other\",\"email\":\"$OTHER\",\"password\":\"other-pass-123\"}"
 OTHER_ACCESS=$(j .tokens.accessToken)
@@ -103,7 +127,7 @@ expect 404 NOT_FOUND "someone else's session reads as not found"
 
 req POST /sessions/$SID/end "" "$ACCESS"
 expect 200 "" "end session"
-[[ $(j .summary.turnCount) == 2 ]] || fail "summary" "$BODY"
+[[ $(j .summary.turnCount) == 4 ]] || fail "summary" "$BODY"
 ok "summary: $(j -c .summary)"
 req POST /sessions/$SID/end "" "$ACCESS"
 expect 200 "" "ending again is idempotent"
@@ -116,7 +140,7 @@ expect 200 "" "progress"
 [[ $(j .sessionsCompleted) == 1 ]] || fail "progress counts" "$BODY"
 ok "progress: $(j -c '{streak, spokenTurnsToday, sessionsCompleted, secondsPracticedToday}')"
 TODAY=$(date -u +%F)
-[[ $(j '.week|length') == 7 && $(j '.week[6].date') == "$TODAY" && $(j '.week[6].turns') == 2 && $(j '.secondsPracticedToday') -gt 0 && $(j '.secondsPracticedToday') == $(j '.week[6].secondsPracticed') ]] \
+[[ $(j '.week|length') == 7 && $(j '.week[6].date') == "$TODAY" && $(j '.week[6].turns') == 4 && $(j '.secondsPracticedToday') -gt 0 && $(j '.secondsPracticedToday') == $(j '.week[6].secondsPracticed') ]] \
   || fail "week: 7 days ending today, today's turns and practice time" "$BODY"
 ok "week: 7 days, today = $(j '.week[6].turns') turns, $(j .secondsPracticedToday)s practised"
 
