@@ -29,6 +29,13 @@
       "when": 1792328727434,
       "tag": "0003_roleplay",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793527537807,
+      "tag": "0004_words_and_goals",
+      "breakpoints": true
     }
   ]
 }

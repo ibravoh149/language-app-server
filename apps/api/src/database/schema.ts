@@ -192,6 +192,8 @@ export const speakingSessions = pgTable(
     endedAt: timestamp('ended_at', { withTimezone: true }),
     turnCount: integer('turn_count').default(0).notNull(),
     understoodCount: integer('understood_count').default(0).notNull(),
+    /** Indexes into scenarios.goals the learner has achieved in this session (D24). */
+    goalsAchieved: jsonb('goals_achieved').$type<number[]>().default([]).notNull(),
   },
   (t) => [index('speaking_sessions_user_idx').on(t.userId)],
 );
@@ -259,9 +261,45 @@ export const streaks = pgTable('streaks', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ── Words (D24) ───────────────────────────────────────────────────────────
+
+/** Shared dictionary cache: one entry per German lemma and meaning language, filled by a bounded LLM call on a miss. */
+export const dictionaryEntries = pgTable(
+  'dictionary_entries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** Lowercased lemma without article, the cache key. */
+    lemmaKey: varchar('lemma_key', { length: 80 }).notNull(),
+    meaningLanguage: varchar('meaning_language', { length: 5 }).notNull(),
+    lemma: varchar('lemma', { length: 80 }).notNull(),
+    article: varchar('article', { length: 3 }),
+    plural: varchar('plural', { length: 80 }),
+    partOfSpeech: varchar('part_of_speech', { length: 12 }).notNull(),
+    meaning: text('meaning').notNull(),
+    example: text('example').notNull(),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('dictionary_entries_key_idx').on(t.lemmaKey, t.meaningLanguage)],
+);
+
+/** A learner's saved words (My Words). Spaced repetition comes with the Words feature. */
+export const userWords = pgTable(
+  'user_words',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    entryId: uuid('entry_id').notNull().references(() => dictionaryEntries.id),
+    source: varchar('source', { length: 12 }).notNull(),
+    sessionId: uuid('session_id').references(() => speakingSessions.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('user_words_user_entry_idx').on(t.userId, t.entryId)],
+);
+
 export type User = typeof users.$inferSelect;
 export type UserProfile = typeof userProfiles.$inferSelect;
 export type PlacementAttempt = typeof placementAttempts.$inferSelect;
 export type Scenario = typeof scenarios.$inferSelect;
 export type SpeakingSession = typeof speakingSessions.$inferSelect;
 export type SessionTurn = typeof sessionTurns.$inferSelect;
+export type DictionaryEntry = typeof dictionaryEntries.$inferSelect;
