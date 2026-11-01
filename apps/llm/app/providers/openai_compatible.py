@@ -3,11 +3,13 @@ from .base import GenerateOptions, GenerateResult, LLMProvider
 
 
 class OpenAICompatibleProvider(LLMProvider):
-    """Shared implementation for providers that speak the OpenAI chat API (Ollama, DeepSeek)."""
+    """Shared implementation for providers that speak the OpenAI chat API (Ollama, DeepSeek, Groq)."""
 
-    def __init__(self, base_url: str, api_key: str, model: str):
+    def __init__(self, base_url: str, api_key: str, model: str, extra_body: dict | None = None):
         self._model = model
         self._client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+        # Provider-specific request fields (e.g. Groq's reasoning_effort), sent with every call.
+        self._extra_body = extra_body
 
     async def generate(
         self, prompt: str, system: str | None = None, options: GenerateOptions | None = None
@@ -20,6 +22,8 @@ class OpenAICompatibleProvider(LLMProvider):
             kwargs["temperature"] = options.temperature
         if options.json:
             kwargs["response_format"] = {"type": "json_object"}
+        if self._extra_body:
+            kwargs["extra_body"] = self._extra_body
 
         response = await self._client.chat.completions.create(
             model=self._model,

@@ -1,10 +1,14 @@
 import json
+import logging
 from functools import lru_cache
 from pydantic_settings import BaseSettings
 from .providers.base import LLMProvider
 from .providers.ollama import OllamaProvider
 from .providers.deepseek import DeepSeekProvider
+from .providers.groq import GroqProvider
 from .router import LLMRouter, TaskType
+
+logger = logging.getLogger("uvicorn.error")
 
 
 class Settings(BaseSettings):
@@ -15,6 +19,12 @@ class Settings(BaseSettings):
     # DeepSeek cloud
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-chat"
+
+    # Groq cloud (fast; free tier for development)
+    groq_api_key: str = ""
+    groq_model: str = "openai/gpt-oss-120b"
+    # low | medium | high, or empty for models without reasoning
+    groq_reasoning_effort: str = "low"
 
     # JSON map of task -> provider name, e.g. '{"translation":"ollama"}'
     # Defaults: all tasks go to ollama (safe for local dev with no API key)
@@ -42,9 +52,21 @@ def build_router() -> LLMRouter:
             model=s.deepseek_model,
         )
 
-    # Tasks missing from TASK_ROUTING fall back to ollama (dev) or deepseek (when configured),
-    # so adding a task type never breaks an existing .env.
-    fallback = "deepseek" if "deepseek" in providers else "ollama"
+    if s.groq_api_key:
+        providers["groq"] = GroqProvider(
+            api_key=s.groq_api_key,
+            model=s.groq_model,
+            reasoning_effort=s.groq_reasoning_effort or None,
+        )
+
+    # Tasks missing from TASK_ROUTING, or routed to a provider without an API key, fall back to
+    # the first configured hosted provider, else ollama. So a new task type or a missing key
+    # never breaks an existing .env.
+    fallback = next((p for p in ("groq", "deepseek") if p in providers), "ollama")
     routing = {t: fallback for t in TaskType}
-    routing.update({TaskType(k): v for k, v in json.loads(s.task_routing).items()})
+    for task, provider in json.loads(s.task_routing).items():
+        if provider in providers:
+            routing[TaskType(task)] = provider
+        else:
+            logger.warning("TASK_ROUTING: %s -> %s has no API key; using %s", task, provider, fallback)
     return LLMRouter(providers=providers, routing=routing)
