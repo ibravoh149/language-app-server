@@ -1,6 +1,6 @@
 # API contract — F2: Roleplay conversation
 
-Status: **v3.1, agreed** (2026-11-01; v2.1 practice time, v3 tutor actions + My Words, v3.1 idempotent turns). Owner: backend (lead).
+Status: **v3.2, agreed** (2026-11-02; v2.1 practice time, v3 tutor actions + My Words, v3.1 idempotent turns, v3.2 word lookup). Owner: backend (lead).
 Consumers: `languageapp-mobile` (`src/services/roleplay-api.ts`).
 Supersedes the parked slice 1 draft (v1), which used a dev user instead of auth.
 
@@ -243,6 +243,27 @@ Save a word manually, e.g. the save toggle on a word card. Body `{ "lemma": "Kau
 (article optional: "die Kaution" works). Looked up in the dictionary cache first.
 **201** `{ "word": Word }` · **200** if it was already saved · **400** `VALIDATION_FAILED`
 · **502** `TUTOR_UNAVAILABLE` if the dictionary entry couldn't be created.
+
+### ✅ `GET /me/words/lookup?q=<word>&context=<sentence>` (v3.2)
+Look a word up **without saving it**, e.g. tap-a-word in an AI reply.
+- `q`: the word as tapped, 1–60 characters; inflected forms are fine ("Schmerzen", "hatte").
+  The answer is the dictionary form ("hatte" → "haben").
+- `context` (optional): the sentence or reply the word came from, up to 2000 characters
+  (the first 300 are used). It only helps disambiguation the first time a form is looked up.
+
+**200** `{ "word": Word }`: `saved` says whether it's in My Words; `id` is the
+`user_words` id when saved, else the dictionary id (same rule as `word_card`).
+**400** `VALIDATION_FAILED` · **429** `RATE_LIMITED` (300 lookups/hour) · **502** `TUTOR_UNAVAILABLE`.
+
+**When an LLM call happens (D10).** Words live in one dictionary shared by all users, per
+meaning language; My Words rows point into it. Every word resolution (this lookup,
+`POST /me/words`, the tutor's `word` action) checks, in order:
+1. the dictionary by lemma (covers the learner's own saved words and anything any user looked up before);
+2. the alias table: a surface form ("hatte") already resolved once, by anyone;
+3. only on a miss, one bounded LLM call (120 tokens). The result is stored in the dictionary,
+   plus an alias when the form differs from the lemma, so the next lookup by anyone is free.
+
+The first lookup of a new word can take 1–2 s; after that it's a database read.
 
 ### ✅ `DELETE /me/words/:id`
 Remove from My Words. **204** · **404** `NOT_FOUND`.

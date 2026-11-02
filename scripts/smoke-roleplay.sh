@@ -166,4 +166,37 @@ expect 404 NOT_FOUND "removing again → not found"
 req POST /me/words '{"lemma":""}' "$ACCESS"
 expect 400 VALIDATION_FAILED "empty word rejected"
 
+# Tap-a-word lookup (v3.2): never saves; inflected forms resolve to the lemma
+req GET "/me/words/lookup?q=Kaution" "" "$ACCESS"
+expect 200 "" "look up a word"
+[[ $(j .word.lemma) == Kaution && $(j .word.saved) == false ]] || fail "lookup doesn't save" "$BODY"
+req GET /me/words "" "$ACCESS"
+[[ $(j '[.words[] | select(.lemma=="Kaution")] | length') == 0 ]] || fail "lookup left My Words alone" "$BODY"
+ok "lookup left My Words alone"
+req POST /me/words '{"lemma":"Kaution"}' "$ACCESS"
+SAVED_ID=$(j .word.id)
+req GET "/me/words/lookup?q=Kaution" "" "$ACCESS"
+[[ $(j .word.saved) == true && $(j .word.id) == "$SAVED_ID" ]] || fail "saved word shows its user_words id" "$BODY"
+ok "a saved word shows saved=true and its My Words id"
+req GET "/me/words/lookup?q=Schmerzen&context=$(printf "Ich%%20habe%%20starke%%20Schmerzen.%%20%.0s" $(seq 1 30))" "" "$ACCESS"
+expect 200 "" "look up an inflected form with context"
+LEMMA=$(j .word.lemma); FIRST_ID=$(j .word.id)
+ok "Schmerzen → $(j .word.article) $LEMMA = $(j .word.meaning)"
+req GET "/me/words/lookup?q=Schmerzen" "" "$ACCESS"
+[[ $(j .word.id) == "$FIRST_ID" ]] || fail "second lookup hits the cache" "$BODY"
+ok "second lookup of the inflected form hits the cache"
+req GET "/me/words/lookup?q=hatte" "" "$ACCESS"
+expect 200 "" "look up a conjugated verb"
+ok "hatte → $(j .word.lemma) = $(j .word.meaning)"
+if [[ $(j .word.lemma) != hatte ]]; then
+  req GET "/me/words/lookup?q=hatte" "" "$ACCESS"
+  n=$(sed -E $'s/\x1b\\[[0-9;]*m//g' "$LOG" | grep -c 'from "hatte"' || true)
+  [[ $n -le 1 ]] || fail "alias cache" "expected at most 1 dictionary call for \"hatte\", saw $n"
+  ok "\"hatte\" is now an alias: the repeat cost no LLM call"
+fi
+req GET "/me/words/lookup?q=" "" "$ACCESS"
+expect 400 VALIDATION_FAILED "empty lookup rejected"
+req GET "/me/words/lookup?q=$(printf 'a%.0s' $(seq 1 61))" "" "$ACCESS"
+expect 400 VALIDATION_FAILED "over-long lookup rejected"
+
 echo "All $pass checks passed."

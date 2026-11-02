@@ -56,9 +56,9 @@ export class WordsService {
   }
 
   /** Resolves a word through the dictionary; throws TUTOR_UNAVAILABLE if it can't be created. */
-  async lookup(userId: string, input: string): Promise<DictionaryEntry> {
+  async lookup(userId: string, input: string, context?: string): Promise<DictionaryEntry> {
     try {
-      return await this.dictionary.resolve(input, await this.spokenLanguage(userId));
+      return await this.dictionary.resolve(input, await this.spokenLanguage(userId), context);
     } catch {
       throw new AppError('TUTOR_UNAVAILABLE', 'That word could not be looked up just now. Please try again.');
     }
