@@ -50,6 +50,13 @@
       "when": 1793634546191,
       "tag": "0006_dictionary_aliases",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793657728362,
+      "tag": "0007_admin_roles",
+      "breakpoints": true
     }
   ]
 }

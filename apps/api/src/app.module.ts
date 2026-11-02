@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -18,6 +19,7 @@ import { WordsModule } from './words/words.module';
     PlacementModule,
     RoleplayModule,
     WordsModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -15,7 +15,8 @@
     "db:push": "drizzle-kit push",
     "db:pull": "drizzle-kit introspect",
     "db:studio": "drizzle-kit studio",
-    "db:seed": "nest build && node dist/database/seed.js"
+    "db:seed": "nest build && node dist/database/seed.js",
+    "admin:grant": "nest build && node dist/admin/grant.js"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",

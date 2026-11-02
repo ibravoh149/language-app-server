@@ -1,5 +1,6 @@
 import {
   boolean,
+  primaryKey,
   index,
   integer,
   jsonb,
@@ -318,6 +319,35 @@ export const userWords = pgTable(
     ...timestamps,
   },
   (t) => [uniqueIndex('user_words_user_entry_idx').on(t.userId, t.entryId)],
+);
+
+// ── Admin (D26) ───────────────────────────────────────────────────────────
+
+/** Admin roles. The built-in `admin` role always has every permission (see admin/permissions.ts). */
+export const roles = pgTable('roles', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  key: varchar('key', { length: 40 }).notNull().unique(),
+  name: text('name').notNull(),
+  ...timestamps,
+});
+
+export const rolePermissions = pgTable(
+  'role_permissions',
+  {
+    roleId: uuid('role_id').notNull().references(() => roles.id, { onDelete: 'cascade' }),
+    permission: varchar('permission', { length: 40 }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.roleId, t.permission] })],
+);
+
+export const userRoles = pgTable(
+  'user_roles',
+  {
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    roleId: uuid('role_id').notNull().references(() => roles.id, { onDelete: 'cascade' }),
+    ...timestamps,
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.roleId] })],
 );
 
 export type User = typeof users.$inferSelect;
