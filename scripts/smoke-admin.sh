@@ -69,4 +69,29 @@ expect 200 "" "admin → /admin/me"
 [[ $(j '.permissions | length') -ge 11 && $(j '.permissions | index("users.delete")') != null ]] || fail "admin has every permission" "$BODY"
 ok "admin role has all $(j '.permissions | length') permissions"
 
+ADMIN_ID=$(j .user.id)
+
+# LLM usage (needs the LLM service). A made-up word forces one dictionary call, attributed to the admin.
+req GET "/me/words/lookup?q=Smoketestwort$STAMP" "" "$ADMIN"
+[[ $STATUS == 200 || $STATUS == 502 ]] || fail "lookup to create an llm call" "$STATUS $BODY"
+req GET "/admin/llm/calls?task=vocabulary&limit=1" "" "$ADMIN"
+expect 200 "" "llm call log"
+[[ $(j '.calls[0].userId') == "$ADMIN_ID" && $(j '.calls[0].outcome') =~ ^(ok|invalid|error)$ && $(j '.calls[0].ms') -ge 0 ]] || fail "call recorded and attributed" "$BODY"
+ok "call recorded: $(j '.calls[0].provider') $(j '.calls[0].model') $(j '.calls[0].outcome') $(j '.calls[0].ms')ms, attributed to the admin"
+CURSOR=$(j .nextCursor)
+if [[ $CURSOR != null ]]; then
+  req GET "/admin/llm/calls?limit=1&cursor=$CURSOR" "" "$ADMIN"
+  expect 200 "" "call log next page"
+fi
+req GET "/admin/llm/calls?cursor=garbage" "" "$ADMIN"
+expect 400 VALIDATION_FAILED "bad cursor rejected"
+req GET "/admin/llm/usage?days=7" "" "$ADMIN"
+expect 200 "" "llm usage"
+[[ $(j '.series | length') == 7 && $(j '.totals.calls') -ge 1 && $(j '[.byTask[] | select(.task=="vocabulary")] | length') -ge 1 ]] || fail "usage shape" "$BODY"
+ok "usage: $(j .totals.calls) calls, $(j .totals.failures) failures, \$$(j .totals.costUsd) in 7 days"
+req GET "/admin/llm/usage?days=500" "" "$ADMIN"
+expect 400 VALIDATION_FAILED "days out of range rejected"
+req GET /admin/llm/usage "" "$LEARNER"
+expect 403 FORBIDDEN "learner can't read usage"
+
 echo "All $pass checks passed."
