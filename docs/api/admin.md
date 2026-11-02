@@ -16,6 +16,10 @@ D28 one domain, split by path · D10 LLM spend kept low.
 - Base URL: `/api/v1/admin` (same server as the app API). In development the
   dashboard runs on Vite (`http://localhost:5173/admin/`) and proxies `/api` to
   `http://localhost:3000`.
+- In production the dashboard is served by the API itself at `/admin` (D28): the static
+  build from `languageapp-web/apps/admin/dist` (or `ADMIN_DIST_DIR`), hashed assets cached
+  for a year, `index.html` never cached, unknown `/admin/*` paths fall back to `index.html`.
+  Run `yarn build` in `apps/admin` and the running API serves it at once, no restart.
 - Errors use the shared envelope `{ "error": { "code", "message", "details"? } }`.
   New code: **403 `FORBIDDEN`**, the user is signed in but lacks the permission.
 - Times are ISO 8601 UTC. Days are UTC days, `YYYY-MM-DD`.
