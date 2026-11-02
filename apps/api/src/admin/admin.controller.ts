@@ -4,6 +4,7 @@ import { AccessGuard, UserId } from '../auth/auth.guard';
 import { validate } from '../common/validate';
 import { UsersService } from '../users/users.service';
 import { AdminLlmService } from './admin-llm.service';
+import { AdminOverviewService } from './admin-overview.service';
 import { DaysSchema, LimitSchema } from './admin-query';
 import { AdminGuard, AdminRequest, RequirePermission } from './admin.guard';
 
@@ -22,12 +23,20 @@ export class AdminController {
   constructor(
     private readonly users: UsersService,
     private readonly llm: AdminLlmService,
+    private readonly overviewService: AdminOverviewService,
   ) {}
 
   @Get('me')
   async me(@UserId() userId: string, @Req() req: AdminRequest) {
     const user = await this.users.requireUser(userId);
     return { user: { id: user.id, email: user.email, name: user.name }, ...req.admin! };
+  }
+
+  @Get('overview')
+  @RequirePermission('analytics.read')
+  async overview(@Query() query: unknown) {
+    const { days } = validate(UsageQuery, query);
+    return this.overviewService.overview(Math.max(7, days ?? 30));
   }
 
   @Get('llm/usage')

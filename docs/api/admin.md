@@ -1,6 +1,6 @@
 # API contract — Admin dashboard
 
-Status: **v0.1, draft** (2026-11-02). Owner: backend (lead).
+Status: **v0.2, draft** (2026-11-02; v0.2: level enum A1–C1, streak and call notes). Owner: backend (lead).
 Consumer: `languageapp-web` (`apps/admin`, owned by the web agent).
 Phase A is being built now; phases B and C are the agreed direction, shapes may still change.
 
@@ -73,11 +73,12 @@ Seeded role: **`admin`**, all permissions. Grant it from the backend:
   today: { signups: number; activeUsers: number; turns: number; completedSessions: number };
   series: { date: string; signups: number; activeUsers: number; turns: number;
             completedSessions: number }[];       // oldest first, one entry per day incl. zeros
-  levels: { level: 'A1'|'A2'|'B1'|'B2'|'C1'|'C2'; users: number }[];   // chosen level
-  streaks: { bucket: '0'|'1-2'|'3-6'|'7-29'|'30+'; users: number }[];  // current streak
+  levels: { level: 'A1'|'A2'|'B1'|'B2'|'C1'; users: number }[];   // chosen level, all 5 always present
+  streaks: { bucket: '0'|'1-2'|'3-6'|'7-29'|'30+'; users: number }[];  // current streak, all buckets present
 }
 ```
-"Active" = produced at least one spoken or typed turn that day.
+"Active" = sent at least one spoken or typed turn that day. A streak whose last day
+is before yesterday counts as 0 (it's already broken).
 
 ### `GET /admin/llm/usage?days=30` · `llm.read`
 Every LLM call the API makes is recorded (task, provider, model, outcome, tokens,
@@ -97,6 +98,10 @@ latency; never prompt or reply text).
   A retried call counts each attempt.
 - `fallbacks`: the hosted provider was rate-limited and the local model answered.
 - `costUsd` is an estimate from the price table in the API config; local (Ollama) is 0.
+
+### (LLM call notes)
+A call that failed before reaching a provider has `provider: "unknown"`, `model: null`,
+`outcome: "error"`. Recording started with backend `dbc1813`; there is no earlier history.
 
 ### `GET /admin/llm/calls?task=&outcome=&cursor=&limit=` · `llm.read`
 Most recent first. `outcome`: `ok` | `invalid` | `error`.
