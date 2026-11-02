@@ -31,6 +31,9 @@ class Usage(BaseModel):
 class GenerateResponse(BaseModel):
     result: str
     provider: str
+    model: str | None = None
+    # True when the routed provider was rate-limited and the local model answered
+    fallback: bool = False
     usage: Usage
 
 
@@ -42,6 +45,7 @@ async def generate(body: GenerateRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
     options = GenerateOptions(max_tokens=body.max_tokens, temperature=body.temperature, json=body.json_output)
+    fallback = False
     try:
         result = await provider.generate(prompt=body.prompt, system=body.system, options=options)
     except RateLimitError:
@@ -51,6 +55,7 @@ async def generate(body: GenerateRequest):
             raise
         logger.warning("llm task=%s provider=%s rate-limited; falling back to %s", body.task.value, type(provider).__name__, type(local).__name__)
         provider = local
+        fallback = True
         result = await provider.generate(prompt=body.prompt, system=body.system, options=options)
     logger.info(
         "llm task=%s provider=%s prompt_tokens=%s completion_tokens=%s",
@@ -59,6 +64,8 @@ async def generate(body: GenerateRequest):
     return GenerateResponse(
         result=result.text,
         provider=type(provider).__name__,
+        model=getattr(provider, "_model", None),
+        fallback=fallback,
         usage=Usage(prompt_tokens=result.prompt_tokens, completion_tokens=result.completion_tokens),
     )
 
