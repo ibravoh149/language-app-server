@@ -289,6 +289,23 @@ export const dictionaryEntries = pgTable(
   (t) => [uniqueIndex('dictionary_entries_key_idx').on(t.lemmaKey, t.meaningLanguage)],
 );
 
+/**
+ * Maps a surface form ("Schmerzen", "hatte") to its dictionary entry, so a lookup of an
+ * inflected form costs one LLM call the first time and is a database read afterwards.
+ */
+export const dictionaryAliases = pgTable(
+  'dictionary_aliases',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** Lowercased surface form as looked up, without article. */
+    surfaceKey: varchar('surface_key', { length: 80 }).notNull(),
+    meaningLanguage: varchar('meaning_language', { length: 5 }).notNull(),
+    entryId: uuid('entry_id').notNull().references(() => dictionaryEntries.id, { onDelete: 'cascade' }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('dictionary_aliases_key_idx').on(t.surfaceKey, t.meaningLanguage)],
+);
+
 /** A learner's saved words (My Words). Spaced repetition comes with the Words feature. */
 export const userWords = pgTable(
   'user_words',
