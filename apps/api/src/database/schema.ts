@@ -350,6 +350,28 @@ export const userRoles = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.roleId] })],
 );
 
+/** One row per LLM call the API makes (D10, D26): outcome, tokens, latency, estimated cost. Never prompt or reply text. */
+export const llmCalls = pgTable(
+  'llm_calls',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    task: varchar('task', { length: 32 }).notNull(),
+    provider: varchar('provider', { length: 40 }),
+    model: varchar('model', { length: 80 }),
+    /** ok | invalid (answered, but the output was unusable) | error (no answer) */
+    outcome: varchar('outcome', { length: 8 }).notNull(),
+    fallback: boolean('fallback').default(false).notNull(),
+    error: text('error'),
+    promptTokens: integer('prompt_tokens'),
+    completionTokens: integer('completion_tokens'),
+    costUsd: real('cost_usd').default(0).notNull(),
+    ms: integer('ms').notNull(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [index('llm_calls_created_idx').on(t.createdAt), index('llm_calls_task_created_idx').on(t.task, t.createdAt)],
+);
+
 export type User = typeof users.$inferSelect;
 export type UserProfile = typeof userProfiles.$inferSelect;
 export type PlacementAttempt = typeof placementAttempts.$inferSelect;

@@ -170,10 +170,14 @@ export class PlacementService {
     let parsed = ScoreSchema.safeParse(safeJson(res.text));
     if (!parsed.success) {
       this.logger.warn(`invalid scorer output for ${attempt.id}, retrying once`);
+      await this.llm.markInvalid(res.callId, 'invalid scorer output');
       res = await this.llm.generate({ task: 'placement_scoring', system, prompt, maxTokens: 220, temperature: 0.2, json: true });
       parsed = ScoreSchema.safeParse(safeJson(res.text));
     }
-    if (!parsed.success) throw new Error(`invalid scorer output: ${res.text.slice(0, 200)}`);
+    if (!parsed.success) {
+      await this.llm.markInvalid(res.callId, 'invalid scorer output after retry');
+      throw new Error(`invalid scorer output: ${res.text.slice(0, 200)}`);
+    }
     const score = parsed.data;
     return {
       suggestedLevel: levelFromRubric(promptLevel, score.meaning, score.majorErrors),

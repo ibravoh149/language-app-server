@@ -70,7 +70,10 @@ export class DictionaryService {
     const start = res.text.indexOf('{');
     const end = res.text.lastIndexOf('}');
     const parsed = EntrySchema.safeParse(start >= 0 && end > start ? safeParse(res.text.slice(start, end + 1)) : null);
-    if (!parsed.success) throw new Error(`invalid dictionary output: ${res.text.slice(0, 160)}`);
+    if (!parsed.success) {
+      await this.llm.markInvalid(res.callId, 'invalid dictionary output');
+      throw new Error(`invalid dictionary output: ${res.text.slice(0, 160)}`);
+    }
 
     // Validated above, so every field is present.
     const entry = parsed.data as Required<z.infer<typeof EntrySchema>>;

@@ -1,6 +1,7 @@
 import { CanActivate, createParamDecorator, ExecutionContext, Injectable } from '@nestjs/common';
 import { Request } from 'express';
 import { AppError } from '../common/app-error';
+import { requestContext } from '../common/request-context';
 import { UsersService } from '../users/users.service';
 import { TokensService } from './tokens.service';
 
@@ -17,6 +18,8 @@ export class AccessGuard implements CanActivate {
     const [scheme, token] = header.split(' ');
     if (scheme !== 'Bearer' || !token) throw new AppError('UNAUTHORIZED', 'Sign in to continue.');
     req.userId = await this.tokens.verifyAccess(token);
+    const context = requestContext.getStore();
+    if (context) context.userId = req.userId;
     return true;
   }
 }

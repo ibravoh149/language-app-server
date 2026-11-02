@@ -1,5 +1,6 @@
 import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
+import { requestContext } from './request-context';
 
 /**
  * Logs one line per request when it finishes:
@@ -13,6 +14,11 @@ export class RequestLoggerMiddleware implements NestMiddleware {
   private readonly enabled = process.env.LOG_REQUESTS !== 'false';
 
   use(req: Request & { userId?: string }, res: Response, next: NextFunction) {
+    // Every request gets its own context (read by the LLM client for attribution).
+    requestContext.run({}, () => this.handle(req, res, next));
+  }
+
+  private handle(req: Request & { userId?: string }, res: Response, next: NextFunction) {
     if (!this.enabled) return next();
     const started = process.hrtime.bigint();
     res.on('finish', () => {

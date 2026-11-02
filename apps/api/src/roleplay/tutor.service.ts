@@ -173,10 +173,14 @@ export class TutorService {
     let parsed = TutorSchema.safeParse(parseJson(res.text));
     if (!parsed.success) {
       this.logger.warn('invalid tutor output, retrying once');
+      await this.llm.markInvalid(res.callId, 'invalid tutor output');
       res = await this.llm.generate({ task: 'roleplay_turn', system, prompt, maxTokens: MAX_TOKENS, temperature: 0.2, json: true });
       parsed = TutorSchema.safeParse(parseJson(res.text));
     }
-    if (!parsed.success) throw new Error(`invalid tutor output: ${res.text.slice(0, 200)}`);
+    if (!parsed.success) {
+      await this.llm.markInvalid(res.callId, 'invalid tutor output after retry');
+      throw new Error(`invalid tutor output: ${res.text.slice(0, 200)}`);
+    }
 
     return {
       reply: parsed.data.reply,
