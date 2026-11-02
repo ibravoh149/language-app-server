@@ -1,6 +1,6 @@
 # API contract — Admin dashboard
 
-Status: **v0.2, draft** (2026-11-02; v0.2: level enum A1–C1, streak and call notes). Owner: backend (lead).
+Status: **v0.3, draft** (2026-11-02; v0.2: level enum A1–C1, streak and call notes; v0.3: phase A complete). Owner: backend (lead).
 Consumer: `languageapp-web` (`apps/admin`, owned by the web agent).
 Phase A is being built now; phases B and C are the agreed direction, shapes may still change.
 
@@ -147,8 +147,9 @@ interface AdminUserRow {
 
 ### User actions · `users.write` (delete: `users.delete`)
 All return **200** `{ user: AdminUserRow }` (delete: **204**), are audit-logged, and
-take an optional `{ "reason": string }` (max 300) that goes into the audit log.
-- `POST /admin/users/:id/verify-email`
+take an optional JSON body `{ "reason": string }` (max 300) that goes into the audit log.
+A malformed or unknown id is **404** `NOT_FOUND`.
+- `POST /admin/users/:id/verify-email`: idempotent.
 - `POST /admin/users/:id/suspend`: `reason` required. Signs the user out everywhere;
   their login, refresh and API calls then get **403 `ACCOUNT_SUSPENDED`**.
 - `POST /admin/users/:id/unsuspend`
@@ -160,13 +161,14 @@ You can't suspend or delete yourself: **400 `VALIDATION_FAILED`**.
 Most recent first.
 ```ts
 { entries: { id: string; at: string;
-             actor: { id: string; email: string };
+             actor: { id: string | null; email: string };   // id null if the admin was deleted
              action: string;              // e.g. "user.suspend", "conversation.view"
              target: { type: string; id: string } | null;
              reason: string | null;
-             meta: Record<string, unknown> | null }[];
+             meta: Record<string, unknown> | null }[];   // user.delete keeps { email }
   nextCursor: string | null }
 ```
+Actions so far: `user.verify_email`, `user.suspend`, `user.unsuspend`, `user.delete`.
 
 ## Phase B (direction)
 

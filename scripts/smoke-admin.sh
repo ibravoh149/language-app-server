@@ -98,4 +98,60 @@ ok "overview: $(j .totals.users) users, $(j .today.signups) signups today, $(j .
 req GET /admin/llm/usage "" "$LEARNER"
 expect 403 FORBIDDEN "learner can't read usage"
 
+# Users
+req GET "/admin/users?q=$(jq -rn --arg v "$LEARNER_EMAIL" '$v|@uri')" "" "$ADMIN"
+expect 200 "" "search users"
+LEARNER_ID=$(j '.users[0].id')
+[[ $(j '.users | length') == 1 && $(j '.users[0].email') == "$LEARNER_EMAIL" && $(j '.users[0].roles | length') == 0 && $(j '.users[0].emailVerified') == true ]] || fail "search result" "$BODY"
+ok "found the learner by email"
+req GET "/admin/users?limit=2" "" "$ADMIN"
+[[ $(j '.users | length') == 2 && $(j .nextCursor) != null ]] || fail "users page" "$BODY"
+req GET "/admin/users?limit=2&cursor=$(j .nextCursor)" "" "$ADMIN"
+expect 200 "" "users next page"
+req GET "/admin/users/$LEARNER_ID" "" "$ADMIN"
+expect 200 "" "user detail"
+[[ $(j '.user.signInMethods[0]') == password && $(j .profile.chosenLevel) == B1 && $(j .stats.sessions) == 0 ]] || fail "detail shape" "$BODY"
+req GET "/admin/users/00000000-0000-0000-0000-000000000000" "" "$ADMIN"
+expect 404 NOT_FOUND "unknown user → 404"
+req GET "/admin/users/not-a-uuid" "" "$ADMIN"
+expect 404 NOT_FOUND "malformed id → 404"
+req POST "/admin/users/$LEARNER_ID/verify-email" "{}" "$ADMIN"
+expect 200 "" "verify email (idempotent)"
+
+# Suspension
+req POST "/admin/users/$LEARNER_ID/suspend" "{}" "$ADMIN"
+expect 400 VALIDATION_FAILED "suspend needs a reason"
+req POST "/admin/users/$LEARNER_ID/suspend" '{"reason":"smoke test"}' "$ADMIN"
+expect 200 "" "suspend"
+[[ $(j .user.suspended) == true ]] || fail "suspended flag" "$BODY"
+req GET /me "" "$LEARNER"
+expect 403 ACCOUNT_SUSPENDED "suspended user's next API call → ACCOUNT_SUSPENDED"
+req POST /auth/login "{\"email\":\"$LEARNER_EMAIL\",\"password\":\"admin-pass-123\"}"
+expect 403 ACCOUNT_SUSPENDED "suspended user can't sign in"
+req POST "/admin/users/$ADMIN_ID/suspend" '{"reason":"oops"}' "$ADMIN"
+expect 400 VALIDATION_FAILED "can't suspend yourself"
+req POST "/admin/users/$LEARNER_ID/unsuspend" "{}" "$ADMIN"
+expect 200 "" "unsuspend"
+req POST /auth/login "{\"email\":\"$LEARNER_EMAIL\",\"password\":\"admin-pass-123\"}"
+expect 200 "" "signs in again after unsuspend"
+LEARNER=$(j .tokens.accessToken)
+req GET /admin/users "" "$LEARNER"
+expect 403 FORBIDDEN "learner can't list users"
+
+# Audit log
+req GET "/admin/audit?actorId=$ADMIN_ID" "" "$ADMIN"
+expect 200 "" "audit log"
+[[ $(j '[.entries[] | select(.action=="user.suspend" and .target.id=="'"$LEARNER_ID"'" and .reason=="smoke test")] | length') == 1 ]] || fail "suspend audited" "$BODY"
+[[ $(j '.entries[0].action') == user.unsuspend && $(j '.entries[0].actor.email') == "$ADMIN_EMAIL" ]] || fail "newest first, actor email" "$BODY"
+ok "admin actions are audit-logged, newest first"
+
+# Delete
+req DELETE "/admin/users/$LEARNER_ID" '{"reason":"smoke cleanup"}' "$ADMIN"
+expect 204 "" "delete user"
+req GET "/admin/users/$LEARNER_ID" "" "$ADMIN"
+expect 404 NOT_FOUND "deleted user is gone"
+req GET "/admin/audit?action=user.delete&limit=1" "" "$ADMIN"
+[[ $(j '.entries[0].target.id') == "$LEARNER_ID" && $(j '.entries[0].meta.email') == "$LEARNER_EMAIL" ]] || fail "delete audited" "$BODY"
+ok "delete audited with the email kept"
+
 echo "All $pass checks passed."
