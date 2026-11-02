@@ -1,6 +1,6 @@
 # API contract — F1: Auth + Onboarding
 
-Status: **v1.4, agreed** (2026-10-18; v1.1 level cap, v1.2 account linking, v1.3 placement rubric, v1.4 account deletion). Owner: backend (lead).
+Status: **v1.5, agreed** (2026-11-02; v1.1 level cap, v1.2 account linking, v1.3 placement rubric, v1.4 account deletion, v1.5 suspended accounts). Owner: backend (lead).
 Consumers: `languageapp-mobile` (`src/services/auth-api.ts`, `src/services/placement-api.ts`).
 
 Decisions behind it (TRACKER): D18 email + Apple + Google · D19 dev codes logged
@@ -38,6 +38,7 @@ Every non-2xx response:
 | 401 | `REFRESH_INVALID` | Refresh token unknown, expired or revoked. Sign the user out |
 | 401 | `OAUTH_TOKEN_INVALID` | Apple or Google token failed verification |
 | 403 | `EMAIL_NOT_VERIFIED` | The route needs a verified email. Go to the verify screen |
+| 403 | `ACCOUNT_SUSPENDED` | (v1.5) An admin suspended the account. Returned by sign-in (password, Apple, Google), refresh and every authenticated call. Sign the user out and show the message; don't retry |
 | 404 | `NOT_FOUND` | Unknown resource (for example a placement attempt) |
 | 409 | `EMAIL_TAKEN` | Signup with an existing email. Suggest login |
 | 409 | `ACCOUNT_USES_SOCIAL` | Password login on an account that only has Apple/Google. Show those buttons |

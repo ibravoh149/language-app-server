@@ -34,6 +34,9 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash'),
   emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
   onboardingCompletedAt: timestamp('onboarding_completed_at', { withTimezone: true }),
+  /** Set by an admin; a suspended user can't sign in or call the API (ACCOUNT_SUSPENDED). */
+  suspendedAt: timestamp('suspended_at', { withTimezone: true }),
+  suspendedReason: text('suspended_reason'),
   ...timestamps,
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -370,6 +373,23 @@ export const llmCalls = pgTable(
     ...timestamps,
   },
   (t) => [index('llm_calls_created_idx').on(t.createdAt), index('llm_calls_task_created_idx').on(t.task, t.createdAt)],
+);
+
+/** Every admin action (D26): who did what to which record, and why. Kept when the actor is deleted. */
+export const auditLog = pgTable(
+  'audit_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+    actorEmail: varchar('actor_email', { length: 255 }).notNull(),
+    action: varchar('action', { length: 40 }).notNull(),
+    targetType: varchar('target_type', { length: 24 }),
+    targetId: text('target_id'),
+    reason: text('reason'),
+    meta: jsonb('meta').$type<Record<string, unknown>>(),
+    ...timestamps,
+  },
+  (t) => [index('audit_log_created_idx').on(t.createdAt), index('audit_log_actor_idx').on(t.actorId)],
 );
 
 export type User = typeof users.$inferSelect;

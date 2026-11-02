@@ -126,6 +126,11 @@ export class AuthService {
     } else {
       await this.codes.consume(userId, 'delete_account', proof.code!);
     }
+    await this.purgeAccount(userId);
+  }
+
+  /** Deletes the user and everything that cascades from them, plus their placement transcripts. */
+  async purgeAccount(userId: string): Promise<void> {
     await this.db.transaction(async (tx) => {
       await tx.delete(placementAttempts).where(eq(placementAttempts.userId, userId));
       await tx.delete(users).where(eq(users.id, userId));
@@ -135,6 +140,7 @@ export class AuthService {
   /** Builds the contract's AuthResult and opens a new session. */
   async result(userId: string, isNewUser: boolean, userAgent?: string): Promise<AuthResult> {
     const user: User = await this.users.requireUser(userId);
+    if (user.suspendedAt) throw suspendedError();
     return {
       user: await this.users.toDto(user),
       profile: await this.users.getProfile(userId),
@@ -143,3 +149,5 @@ export class AuthService {
     };
   }
 }
+
+export const suspendedError = () => new AppError('ACCOUNT_SUSPENDED', 'This account has been suspended. Contact support if you think this is a mistake.');

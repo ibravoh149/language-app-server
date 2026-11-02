@@ -18,6 +18,10 @@ export class AccessGuard implements CanActivate {
     const [scheme, token] = header.split(' ');
     if (scheme !== 'Bearer' || !token) throw new AppError('UNAUTHORIZED', 'Sign in to continue.');
     req.userId = await this.tokens.verifyAccess(token);
+    // Access tokens live for minutes; a suspension must take effect on the next call.
+    if (await this.tokens.isSuspended(req.userId)) {
+      throw new AppError('ACCOUNT_SUSPENDED', 'This account has been suspended. Contact support if you think this is a mistake.');
+    }
     const context = requestContext.getStore();
     if (context) context.userId = req.userId;
     return true;

@@ -5,7 +5,7 @@ import { jwtVerify, SignJWT } from 'jose';
 import { AppError } from '../common/app-error';
 import { AUTH, env } from '../config/env';
 import { DB, DrizzleDB } from '../database/database.module';
-import { authSessions } from '../database/schema';
+import { authSessions, users } from '../database/schema';
 
 export interface Tokens {
   accessToken: string;
@@ -45,6 +45,9 @@ export class TokensService {
       .from(authSessions)
       .where(eq(authSessions.refreshTokenHash, sha256(refreshToken)));
     if (!session) throw new AppError('REFRESH_INVALID', 'Please sign in again.');
+    if (await this.isSuspended(session.userId)) {
+      throw new AppError('ACCOUNT_SUSPENDED', 'This account has been suspended. Contact support if you think this is a mistake.');
+    }
 
     if (session.revokedAt) {
       if (session.replacedById) await this.revokeAll(session.userId);
@@ -82,6 +85,11 @@ export class TokensService {
   }
 
   /** Returns the user id from a valid access token, or throws UNAUTHORIZED. */
+  async isSuspended(userId: string): Promise<boolean> {
+    const [row] = await this.db.select({ suspendedAt: users.suspendedAt }).from(users).where(eq(users.id, userId));
+    return !!row?.suspendedAt;
+  }
+
   async verifyAccess(token: string): Promise<string> {
     try {
       const { payload } = await jwtVerify(token, this.key(), { algorithms: ['HS256'] });
