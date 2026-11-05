@@ -105,7 +105,7 @@ function toProfileDto(row: UserProfile): ProfileDto {
   return {
     interfaceLanguage: row.interfaceLanguage as ProfileDto['interfaceLanguage'],
     spokenLanguage: row.spokenLanguage as ProfileDto['spokenLanguage'],
-    targetLanguage: 'de',
+    targetLanguage: row.targetLanguage as ProfileDto['targetLanguage'],
     selfRatedLevel: row.selfRatedLevel,
     suggestedLevel: row.suggestedLevel,
     chosenLevel: row.chosenLevel,

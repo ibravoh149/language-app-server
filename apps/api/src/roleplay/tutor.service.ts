@@ -1,11 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
+import { languageName, targetProfile } from '../common/languages';
 import { Scenario } from '../database/schema';
 import { LlmClient } from '../llm/llm.client';
-
-const LANGUAGE_NAMES: Record<string, string> = {
-  en: 'English', de: 'German', fr: 'French', es: 'Spanish', tr: 'Turkish', ar: 'Arabic',
-};
 
 /** How many earlier lines of the conversation go into each call (D10: bounded prompts). */
 const HISTORY_WINDOW = 8;
@@ -115,32 +112,35 @@ export class TutorService {
     spokenLanguage: string,
     memory: TutorMemory = { recentMistakes: [], recentWords: [], goalsAchieved: [] },
   ): Promise<TutorResult> {
-    const learnerLanguage = LANGUAGE_NAMES[spokenLanguage] ?? 'English';
+    const learnerLanguage = languageName(spokenLanguage);
+    const target = targetProfile(scenario.targetLanguage);
+    const lang = target.name;
+    const ex = target.tutor;
     const system = [
-      `You are playing a role in a German speaking practice for a ${scenario.level} learner.`,
+      `You are playing a role in a ${lang} speaking practice for a ${scenario.level} learner.`,
       `Scene: ${scenario.situation}`,
       `The learner is ${scenario.youAre}. You are ${scenario.aiIs}.`,
       `Character notes: ${scenario.aiPersona}`,
       '',
       'Each time, do two things:',
-      `1. "reply": your next line, IN GERMAN ONLY, in character, simple enough for CEFR ${scenario.level}: 1-2 short sentences.`,
+      `1. "reply": your next line, IN ${lang.toUpperCase()} ONLY, in character, simple enough for CEFR ${scenario.level}: 1-2 short sentences.`,
       '   Keep the scene moving and usually end with a question. Never explain grammar in the reply and never switch language.',
       '2. Check the learner\'s LAST message only:',
       '   - "understood": true whenever you can tell what they meant, EVEN IF it has mistakes. false only if the message is',
       '     meaningless or unrelated (then your reply politely asks them to say it again).',
       `   - "corrections": up to 3 real mistakes that matter at ${scenario.level}, most important first. For each: "original" (their`,
-      '     wrong words), "corrected" (correct German), "ruleKey" (short English kebab-case id, e.g. "verb-second"),',
+      `     wrong words), "corrected" (correct ${lang}), "ruleKey" (short English kebab-case id, e.g. "word-order"),`,
       `     "ruleName" (short label in ${learnerLanguage}) and "explanation" (ONE short sentence in ${learnerLanguage}: why).`,
       '   - Their message is a speech transcript: ignore punctuation and capitalisation. Only correct real errors: never',
-      '     "correct" German that is already right, and never swap a correct wording for another correct one (e.g. "habe',
-      '     gehabt" vs "hatte" are both fine). If there are no mistakes, use an empty list.',
+      `     "correct" ${lang} that is already right, and never swap a correct wording for another correct one (e.g.`,
+      `     ${ex.bothCorrect} are both fine). If there are no mistakes, use an empty list.`,
       `3. "actions": tools you may use (at most ${MAX_ACTIONS}, often none):`,
-      '   - {"type":"word","lemma":"Kaution","save":true}: show a word card. Use it when the learner asks what a word means or',
+      `   - {"type":"word","lemma":"${ex.exampleWord}","save":true}: show a word card. Use it when the learner asks what a word means or`,
       '     how to say something, or uses a useful new word. "save": true only if they asked about it or asked to save it.',
-      '   - {"type":"play","text":"Die Rechnung, bitte."}: let the learner hear a short German phrase they asked how to say.',
+      `   - {"type":"play","text":"${ex.examplePhrase}"}: let the learner hear a short ${lang} phrase they asked how to say.`,
       `   - {"type":"grammar","ruleKey":"...","ruleName":"...","explanation":"...","examples":["..."]}: a grammar card (in ${learnerLanguage},`,
-      '     examples in German). ALWAYS add one when the learner asks why/how something works in German (e.g. "warum",',
-      '     "wieso", "why"); answer the question in the card, and in your reply say briefly in German that you explained it.',
+      `     examples in ${lang}). ALWAYS add one when the learner asks why/how something works in ${lang} (e.g. ${ex.whyWords},`,
+      `     "why"); answer the question in the card, and in your reply say briefly in ${lang} that you explained it.`,
       '   - {"type":"goal","index":N}: EVERY turn, check each goal below that is not yet achieved. If the learner\'s last',
       '     message accomplishes it, add this action for it (several are allowed).',
       `   - {"type":"complete","reason":"..."}: the scene has naturally ended; reason in ${learnerLanguage}.`,
@@ -157,9 +157,7 @@ export class TutorService {
         : []),
       '',
       'Respond with only one JSON object, for example:',
-      '{"reply":"Das tut mir leid. Seit wann haben Sie Fieber?","understood":true,"corrections":[{"original":"Ich habe gegeht",' +
-        '"corrected":"Ich bin gegangen","ruleKey":"perfekt-sein-movement","ruleName":"Perfekt with sein",' +
-        '"explanation":"Movement verbs take sein in the Perfekt; gehen becomes gegangen."}],"actions":[{"type":"goal","index":0}]}',
+      ex.exampleResponse,
     ].join('\n');
 
     const recent = history.slice(-HISTORY_WINDOW);

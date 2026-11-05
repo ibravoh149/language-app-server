@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { CEFR } from '../auth/auth.schemas';
 import { AppError } from '../common/app-error';
+import { languageName, targetProfile } from '../common/languages';
 import { DB, DrizzleDB } from '../database/database.module';
 import { PlacementAttempt, placementAttempts, placementPrompts } from '../database/schema';
 import { LlmClient } from '../llm/llm.client';
@@ -10,9 +11,6 @@ import { LlmClient } from '../llm/llm.client';
 type Level = (typeof CEFR)[number];
 
 const ATTEMPT_TTL_MS = 60 * 60 * 1000;
-const LANGUAGE_NAMES: Record<string, string> = {
-  en: 'English', de: 'German', fr: 'French', es: 'Spanish', tr: 'Turkish', ar: 'Arabic',
-};
 
 /**
  * What the model must return: observations about the answer, not a level. The level is
@@ -142,15 +140,17 @@ export class PlacementService {
 
   /** One bounded LLM call that reports observations; the level comes from levelFromRubric. The self-rating is not sent, so it can't anchor the model. */
   private async score(promptText: string, referenceText: string | null, promptLevel: Level, transcript: string, attempt: PlacementAttempt) {
-    const learnerLanguage = LANGUAGE_NAMES[attempt.spokenLanguage] ?? 'English';
+    const learnerLanguage = languageName(attempt.spokenLanguage);
+    const target = targetProfile(attempt.targetLanguage);
+    const lang = target.name;
     const system = [
-      'You are a strict, fair examiner for German as a foreign language.',
-      `The learner was shown a sentence in ${learnerLanguage} and said its German translation aloud.`,
-      'The German text is an automatic speech transcript. Ignore punctuation and capitalisation.',
-      'Words that are not real German, or that make no sense in context, count as not said.',
+      `You are a strict, fair examiner for ${lang} as a foreign language.`,
+      `The learner was shown a sentence in ${learnerLanguage} and said its ${lang} translation aloud.`,
+      `The ${lang} text is an automatic speech transcript. Ignore punctuation and capitalisation.`,
+      `Words that are not real ${lang}, or that make no sense in context, count as not said.`,
       'Compare the transcript with the reference translation (other correct wordings are equally fine) and report:',
       '- "meaning": "full" if everything in the sentence came across, "partial" if only some of it did, "none" if it did not.',
-      '- "majorErrors": errors that change or block the meaning: a missing, wrong or misplaced verb (German puts the verb second),',
+      `- "majorErrors": errors that change or block the meaning: a missing, wrong or misplaced verb (${target.keyGrammar}),`,
       '  a wrong or missing key word, or a garbled phrase.',
       '- "minorErrors": slips that do not block the meaning: articles, endings, gender, case.',
       'Do not judge pronunciation. Be strict: do not give credit for parts that are missing.',
@@ -162,7 +162,7 @@ export class PlacementService {
     const prompt = [
       `Sentence shown (${learnerLanguage}): ${promptText}`,
       ...(referenceText ? [`Reference translation: ${referenceText}`] : []),
-      `Learner's German (transcript): ${transcript}`,
+      `Learner's ${lang} (transcript): ${transcript}`,
     ].join('\n');
 
     // Small models occasionally return malformed output; one retry is cheap and bounded.

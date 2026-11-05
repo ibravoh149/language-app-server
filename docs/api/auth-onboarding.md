@@ -1,6 +1,6 @@
 # API contract — F1: Auth + Onboarding
 
-Status: **v1.5, agreed** (2026-11-02; v1.1 level cap, v1.2 account linking, v1.3 placement rubric, v1.4 account deletion, v1.5 suspended accounts). Owner: backend (lead).
+Status: **v1.6, agreed** (2026-11-05; v1.1 level cap, v1.2 account linking, v1.3 placement rubric, v1.4 account deletion, v1.5 suspended accounts, v1.6 target language is a list, D29). Owner: backend (lead).
 Consumers: `languageapp-mobile` (`src/services/auth-api.ts`, `src/services/placement-api.ts`).
 
 Decisions behind it (TRACKER): D18 email + Apple + Google · D19 dev codes logged
@@ -86,7 +86,8 @@ interface User {
 interface Profile {
   interfaceLanguage: Lang;         // app UI language
   spokenLanguage: Lang;            // learner's own language (explanations, placement prompts)
-  targetLanguage: 'de';            // learning language; only German is available
+  targetLanguage: TargetLang;      // learning language (D29); type TargetLang = 'de' for now, more will be added.
+                                   // An unsupported value is 400 VALIDATION_FAILED. Clients should not assume 'de'.
   selfRatedLevel: CEFRLevel | null;
   suggestedLevel: CEFRLevel | null; // from placement scoring
   chosenLevel: CEFRLevel;           // what the learner starts at
@@ -127,7 +128,7 @@ Request
 ```json
 { "attempt": { "id": "…", "prompt": { "text": "I've lived in Berlin for two years, but I used to live in a small town.", "language": "en" }, "expiresAt": "…" } }
 ```
-The learner says the German translation of `prompt.text` aloud (the existing
+The learner says the translation of `prompt.text` in the target language aloud (the existing
 speaking-sample task). Attempts expire after 1 hour.
 
 ### `POST /placement/attempts/:id/submit`

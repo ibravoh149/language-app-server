@@ -1,6 +1,6 @@
 # API contract — F2: Roleplay conversation
 
-Status: **v3.2, agreed** (2026-11-02; v2.1 practice time, v3 tutor actions + My Words, v3.1 idempotent turns, v3.2 word lookup). Owner: backend (lead).
+Status: **v3.3, agreed** (2026-11-05; v2.1 practice time, v3 tutor actions + My Words, v3.1 idempotent turns, v3.2 word lookup, v3.3 multi-language wording, D29). Owner: backend (lead).
 Consumers: `languageapp-mobile` (`src/services/roleplay-api.ts`).
 Supersedes the parked slice 1 draft (v1), which used a dev user instead of auth.
 
@@ -17,9 +17,10 @@ LLM spend kept low · D12 German voice, explanations as text.
 - **Auth:** every route needs `Authorization: Bearer <accessToken>` **and a verified
   email** (✅ in `auth-onboarding.md`): `401 UNAUTHORIZED`, `403 EMAIL_NOT_VERIFIED`.
 - **Speech stays on the device.** The client sends its on-device transcript as text
-  and speaks the AI's German reply with the learner's chosen Piper voice
+  and speaks the AI's reply with the learner's chosen Piper voice
   (`profile.voiceId`, `profile.voiceSpeed`). No audio goes to the server.
-- **Language:** the AI's lines are German at the scenario's level. Corrections'
+- **Language:** every scenario has a target language (D29; only German so far). `GET /scenarios` lists only scenarios
+  in the learner's `targetLanguage`. The AI's lines are in that language at the scenario's level. Corrections'
   `explanation` and `ruleName` are in the learner's `profile.spokenLanguage`
   (D12: explanations are text, not speech).
 - Errors use the shared envelope `{ "error": { "code", "message", "fields?" } }`.
@@ -57,8 +58,8 @@ interface Scenario extends ScenarioSummary {
   youAre: string;            // "the patient"
   aiIs: string;              // "the doctor"
   goals: string[];           // what the learner should achieve
-  words: { de: string; en: string }[];   // useful words, German with article
-  phrases: string[];         // German example phrases
+  words: { de: string; en: string }[];   // useful words: `de` = the word in the target language (with article), `en` = English meaning; key names are historical (B-LANG-1)
+  phrases: string[];         // example phrases in the target language
   grammar: string[];         // grammar focus labels, e.g. "Perfekt (haben/sein)"
 }
 
@@ -73,7 +74,7 @@ interface Correction {
   id: string;
   turnId: string;            // the learner turn it belongs to
   original: string;          // the learner's wrong fragment
-  corrected: string;         // corrected German
+  corrected: string;         // corrected text in the target language
   ruleKey: string;           // stable kebab-case key, e.g. 'perfekt-sein-movement'
   ruleName: string;          // short label in spokenLanguage, e.g. "Perfekt with sein"
   explanation: string;       // the "why", 1–3 sentences in spokenLanguage
@@ -92,11 +93,11 @@ interface Streak {
 interface Word {
   id: string;                // user_words id (null-free once saved)
   lemma: string;             // base form without article: "Kaution"
-  article: 'der' | 'die' | 'das' | null;   // null for non-nouns
+  article: 'der' | 'die' | 'das' | null;   // null for non-nouns. German articles today; widens with the next target language (B-LANG-1)
   plural: string | null;     // "Kautionen"
   partOfSpeech: 'noun' | 'verb' | 'adjective' | 'adverb' | 'phrase' | 'other';
   meaning: string;           // in the learner's spokenLanguage: "deposit"
-  example: string;           // short German example sentence
+  example: string;           // short example sentence in the target language
   saved: boolean;            // in My Words?
   source: 'roleplay' | 'manual';
   createdAt: string | null;  // when saved; null if not saved
@@ -108,7 +109,7 @@ interface Word {
  */
 type Action =
   | { type: 'word_card'; word: Word }                  // show a word; `word.saved` says if it was saved
-  | { type: 'play'; text: string }                     // speak a German phrase in the learner's voice
+  | { type: 'play'; text: string }                     // speak a target-language phrase in the learner's voice
   | { type: 'grammar_card'; ruleKey: string; ruleName: string; explanation: string; examples: string[] }
   | { type: 'goal_achieved'; goalIndex: number; goal: string }   // index into scenario.goals
   | { type: 'scenario_complete'; reason: string };     // the scene reached its end (learner-language sentence)

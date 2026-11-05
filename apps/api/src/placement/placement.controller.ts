@@ -1,6 +1,7 @@
 import { Body, Controller, HttpCode, Ip, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { z } from 'zod';
 import { CEFR, LANGS } from '../auth/auth.schemas';
+import { TARGET_LANGUAGES } from '../common/languages';
 import { AppError } from '../common/app-error';
 import { RateLimiter } from '../common/rate-limiter.service';
 import { validate } from '../common/validate';
@@ -8,7 +9,7 @@ import { PlacementService } from './placement.service';
 
 const CreateAttemptSchema = z.object({
   spokenLanguage: z.enum(LANGS),
-  targetLanguage: z.literal('de'),
+  targetLanguage: z.enum(TARGET_LANGUAGES),
   selfRatedLevel: z.enum(CEFR).nullable().default(null),
 });
 

@@ -28,9 +28,13 @@ export class WordsService {
     private readonly dictionary: DictionaryService,
   ) {}
 
-  async spokenLanguage(userId: string): Promise<string> {
-    const [p] = await this.db.select({ l: userProfiles.spokenLanguage }).from(userProfiles).where(eq(userProfiles.userId, userId));
-    return p?.l ?? 'en';
+  /** The language the learner is learning and the one meanings are written in. */
+  async languages(userId: string): Promise<{ target: string; spoken: string }> {
+    const [p] = await this.db
+      .select({ target: userProfiles.targetLanguage, spoken: userProfiles.spokenLanguage })
+      .from(userProfiles)
+      .where(eq(userProfiles.userId, userId));
+    return { target: p?.target ?? 'de', spoken: p?.spoken ?? 'en' };
   }
 
   async list(userId: string): Promise<WordDto[]> {
@@ -55,10 +59,14 @@ export class WordsService {
     return rows.map((r) => (r.article ? `${r.article} ${r.lemma}` : r.lemma));
   }
 
-  /** Resolves a word through the dictionary; throws TUTOR_UNAVAILABLE if it can't be created. */
-  async lookup(userId: string, input: string, context?: string): Promise<DictionaryEntry> {
+  /**
+   * Resolves a word through the dictionary; throws TUTOR_UNAVAILABLE if it can't be created.
+   * `targetLanguage` defaults to the learner's; roleplay passes the scenario's.
+   */
+  async lookup(userId: string, input: string, opts: { context?: string; targetLanguage?: string } = {}): Promise<DictionaryEntry> {
     try {
-      return await this.dictionary.resolve(input, await this.spokenLanguage(userId), context);
+      const { target, spoken } = await this.languages(userId);
+      return await this.dictionary.resolve(input, opts.targetLanguage ?? target, spoken, opts.context);
     } catch {
       throw new AppError('TUTOR_UNAVAILABLE', 'That word could not be looked up just now. Please try again.');
     }

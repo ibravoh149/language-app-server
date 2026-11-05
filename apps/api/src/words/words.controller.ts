@@ -34,7 +34,7 @@ export class WordsController {
     const { q, context } = validate(LookupSchema, query);
     // Cached words are free, but an uncached one is an LLM call (D10).
     this.limiter.hit(`words-lookup:${userId}`, 300, 3600);
-    const entry = await this.words.lookup(userId, q, context || undefined);
+    const entry = await this.words.lookup(userId, q, { context: context || undefined });
     return { word: await this.words.describe(userId, entry) };
   }
 

@@ -97,7 +97,7 @@ export const emailCodes = pgTable(
 
 // ── Placement ─────────────────────────────────────────────────────────────
 
-/** Prompt bank: sentences in the learner's language to say in German. */
+/** Prompt bank: sentences in the learner's language to say in the target language. */
 export const placementPrompts = pgTable(
   'placement_prompts',
   {
@@ -106,7 +106,7 @@ export const placementPrompts = pgTable(
     targetLanguage: varchar('target_language', { length: 5 }).notNull(),
     level: cefrLevel('level').notNull(),
     text: text('text').notNull(),
-    /** A correct German translation the scorer compares against (other correct wordings are fine). */
+    /** A correct translation in the target language the scorer compares against (other correct wordings are fine). */
     referenceText: text('reference_text'),
     active: boolean('active').default(true).notNull(),
     ...timestamps,
@@ -167,6 +167,8 @@ export const userProfiles = pgTable('user_profiles', {
 export const scenarios = pgTable('scenarios', {
   id: uuid('id').primaryKey().defaultRandom(),
   slug: varchar('slug', { length: 60 }).notNull().unique(),
+  /** The language the scenario is played in (D29). */
+  targetLanguage: varchar('target_language', { length: 5 }).default('de').notNull(),
   title: text('title').notNull(),
   subtitle: text('subtitle').notNull(),
   emoji: varchar('emoji', { length: 16 }).notNull(),
@@ -179,6 +181,7 @@ export const scenarios = pgTable('scenarios', {
   aiPersona: text('ai_persona').notNull(),
   openingLine: text('opening_line').notNull(),
   goals: jsonb('goals').$type<string[]>().notNull(),
+  /** `de` is the word in the target language and `en` its English meaning (key names predate D29; B-LANG-1). */
   words: jsonb('words').$type<{ de: string; en: string }[]>().notNull(),
   phrases: jsonb('phrases').$type<string[]>().notNull(),
   grammar: jsonb('grammar').$type<string[]>().notNull(),
@@ -274,13 +277,15 @@ export const streaks = pgTable('streaks', {
 
 // ── Words (D24) ───────────────────────────────────────────────────────────
 
-/** Shared dictionary cache: one entry per German lemma and meaning language, filled by a bounded LLM call on a miss. */
+/** Shared dictionary cache: one entry per lemma, target language and meaning language, filled by a bounded LLM call on a miss. */
 export const dictionaryEntries = pgTable(
   'dictionary_entries',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     /** Lowercased lemma without article, the cache key. */
     lemmaKey: varchar('lemma_key', { length: 80 }).notNull(),
+    /** The language of the word itself (D29). */
+    targetLanguage: varchar('target_language', { length: 5 }).default('de').notNull(),
     meaningLanguage: varchar('meaning_language', { length: 5 }).notNull(),
     lemma: varchar('lemma', { length: 80 }).notNull(),
     article: varchar('article', { length: 3 }),
@@ -290,7 +295,7 @@ export const dictionaryEntries = pgTable(
     example: text('example').notNull(),
     ...timestamps,
   },
-  (t) => [uniqueIndex('dictionary_entries_key_idx').on(t.lemmaKey, t.meaningLanguage)],
+  (t) => [uniqueIndex('dictionary_entries_key_idx').on(t.lemmaKey, t.targetLanguage, t.meaningLanguage)],
 );
 
 /**
@@ -303,11 +308,12 @@ export const dictionaryAliases = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     /** Lowercased surface form as looked up, without article. */
     surfaceKey: varchar('surface_key', { length: 80 }).notNull(),
+    targetLanguage: varchar('target_language', { length: 5 }).default('de').notNull(),
     meaningLanguage: varchar('meaning_language', { length: 5 }).notNull(),
     entryId: uuid('entry_id').notNull().references(() => dictionaryEntries.id, { onDelete: 'cascade' }),
     ...timestamps,
   },
-  (t) => [uniqueIndex('dictionary_aliases_key_idx').on(t.surfaceKey, t.meaningLanguage)],
+  (t) => [uniqueIndex('dictionary_aliases_key_idx').on(t.surfaceKey, t.targetLanguage, t.meaningLanguage)],
 );
 
 /** A learner's saved words (My Words). Spaced repetition comes with the Words feature. */

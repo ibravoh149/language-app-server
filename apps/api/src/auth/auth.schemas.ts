@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import { LANGS, TARGET_LANGUAGES } from '../common/languages';
 
-export const LANGS = ['en', 'de', 'fr', 'es', 'tr', 'ar'] as const;
+export { LANGS };
 export const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1'] as const;
 
 const email = z
@@ -16,7 +17,7 @@ const uuid = z.string().uuid();
 export const ProfileSchema = z.object({
   interfaceLanguage: z.enum(LANGS),
   spokenLanguage: z.enum(LANGS),
-  targetLanguage: z.literal('de'),
+  targetLanguage: z.enum(TARGET_LANGUAGES),
   selfRatedLevel: z.enum(CEFR).nullable(),
   suggestedLevel: z.enum(CEFR).nullable(),
   chosenLevel: z.enum(CEFR),

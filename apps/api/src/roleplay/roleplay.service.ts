@@ -49,8 +49,13 @@ export class RoleplayService {
 
   // ── Scenarios ────────────────────────────────────────────────────────────
 
+  /** Active scenarios in the language the learner is learning. */
   async listScenarios(userId: string) {
-    const rows = await this.db.select().from(scenarios).where(eq(scenarios.active, true));
+    const { target } = await this.words.languages(userId);
+    const rows = await this.db
+      .select()
+      .from(scenarios)
+      .where(and(eq(scenarios.active, true), eq(scenarios.targetLanguage, target)));
     const history = await this.db
       .select({ scenarioId: speakingSessions.scenarioId, times: count(), last: max(speakingSessions.startedAt) })
       .from(speakingSessions)
@@ -328,7 +333,7 @@ export class RoleplayService {
         if (lookups >= 2) continue;
         lookups++;
         try {
-          const entry = await this.words.lookup(userId, a.lemma);
+          const entry = await this.words.lookup(userId, a.lemma, { targetLanguage: scenario.targetLanguage });
           if (a.save) {
             // Placeholder, replaced inside the transaction once the save commits.
             pendingSaves.push({ index: actions.length, entry });
