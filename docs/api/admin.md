@@ -1,6 +1,6 @@
 # API contract — Admin dashboard
 
-Status: **v0.3, draft** (2026-11-02; v0.2: level enum A1–C1, streak and call notes; v0.3: phase A complete). Owner: backend (lead).
+Status: **v0.4, draft** (2026-11-05; v0.2: level enum A1–C1, streak and call notes; v0.3: phase A complete; v0.4: provider keys). Owner: backend (lead).
 Consumer: `languageapp-web` (`apps/admin`, owned by the web agent).
 Phase A is being built now; phases B and C are the agreed direction, shapes may still change.
 
@@ -104,6 +104,7 @@ latency; never prompt or reply text).
 - `costUsd` is an estimate from the price table in the API config; local (Ollama) is 0.
 
 ### (LLM call notes)
+`provider` is a short stable key: `ollama` | `groq` | `deepseek` (new providers add a key), or `unknown`.
 A call that failed before reaching a provider has `provider: "unknown"`, `model: null`,
 `outcome: "error"`. Recording started with backend `dbc1813`; there is no earlier history.
 

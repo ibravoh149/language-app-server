@@ -27,6 +27,9 @@ export interface LlmResponse {
   callId: string | null;
 }
 
+/** "OllamaProvider" (the Python class name) → "ollama": the stable key stored and shown in the admin. */
+export const providerKey = (name: string) => name.replace(/Provider$/, '').toLowerCase();
+
 /** Calls the internal Python LLM service, which picks the provider per task (TASK_ROUTING). */
 @Injectable()
 export class LlmClient {
@@ -62,7 +65,7 @@ export class LlmClient {
     const ms = Date.now() - started;
     const res: LlmResponse = {
       text: data.result,
-      provider: data.provider,
+      provider: providerKey(data.provider),
       promptTokens: data.usage?.prompt_tokens ?? null,
       completionTokens: data.usage?.completion_tokens ?? null,
       callId: null,

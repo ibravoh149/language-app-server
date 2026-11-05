@@ -21,7 +21,7 @@ function loadPrices() {
 const PRICES = loadPrices();
 
 export function estimateCostUsd(provider: string | null, model: string | null, promptTokens: number | null, completionTokens: number | null) {
-  if (!model || provider === 'OllamaProvider') return 0;
+  if (!model || provider === 'ollama') return 0;
   const price = PRICES[model];
   if (!price) return 0;
   return ((promptTokens ?? 0) * price.input + (completionTokens ?? 0) * price.output) / 1_000_000;
